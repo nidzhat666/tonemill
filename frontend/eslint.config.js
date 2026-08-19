@@ -34,9 +34,10 @@ export default defineConfig(
 		}
 	},
 	{
-		// JobCard's download link is always an external presigned storage URL, never an
-		// internal SvelteKit route, so resolve() doesn't apply.
-		files: ['src/lib/components/JobCard.svelte'],
+		// Vendored shadcn-svelte primitives (src/lib/components/ui/): generic components whose
+		// `href` prop may point anywhere -- whether a link is internal or external is a call-site
+		// concern the rule can't see from here.
+		files: ['src/lib/components/ui/**'],
 		rules: { 'svelte/no-navigation-without-resolve': 'off' }
 	}
 );

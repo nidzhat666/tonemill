@@ -10,6 +10,9 @@ build/
 .pytest_cache/
 .ruff_cache/
 
+# Claude Code session-runtime state (not project source)
+.claude/scheduled_tasks.lock
+
 # Environment / secrets
 .env
 .env.*
