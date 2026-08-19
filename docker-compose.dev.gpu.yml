@@ -1,0 +1,15 @@
+# DEV GPU override — for a dev machine that also has an NVIDIA GPU, so hlg-gpu can be
+# exercised locally before deploying. Layer on top of the dev base:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev.gpu.yml up
+services:
+  worker:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

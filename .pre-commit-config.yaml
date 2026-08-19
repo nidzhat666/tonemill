@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: backend-ruff-format
+        name: backend ruff format --check
+        entry: bash -c 'cd backend && uv run ruff format --check .'
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: backend-ruff-check
+        name: backend ruff check
+        entry: bash -c 'cd backend && uv run ruff check .'
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: backend-ty-check
+        name: backend ty check
+        entry: bash -c 'cd backend && uv run ty check'
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: frontend-lint
+        name: frontend lint (prettier + eslint)
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+      - id: frontend-check
+        name: frontend type-check (svelte-check)
+        entry: bash -c 'cd frontend && npm run check'
+        language: system
+        files: ^frontend/
+        pass_filenames: false

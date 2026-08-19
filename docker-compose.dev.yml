@@ -1,0 +1,98 @@
+# DEV base — CPU-profile worker (no GPU flags), plus a bundled MinIO since dev has no
+# external S3. Run with: docker compose -f docker-compose.dev.yml up
+# For a dev machine that also has a GPU, layer docker-compose.dev.gpu.yml on top.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-tonemill}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-tonemill-dev-only}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # One-shot: creates the tonemill-dev bucket on a fresh MinIO volume, then exits. MinIO
+  # itself never auto-creates buckets; production points at an existing, already-provisioned
+  # external MinIO instead, so this only exists for the dev-bundled one.
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-tonemill}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-tonemill-dev-only}
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+        mc mb --ignore-existing local/tonemill-dev
+      "
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      TONEMILL_REDIS_URL: redis://redis:6379/0
+      # Internal (container-to-container) vs. public (browser-facing, baked into presigned
+      # URLs) MinIO endpoints necessarily differ here -- "minio" only resolves inside the
+      # compose network, but the browser uploading a file runs on the host, outside it.
+      TONEMILL_S3_ENDPOINT_URL: http://minio:9000
+      TONEMILL_S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      TONEMILL_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-tonemill}
+      TONEMILL_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-tonemill-dev-only}
+      TONEMILL_S3_BUCKET: tonemill-dev
+      TONEMILL_JOB_TTL_SECONDS: 86400
+    depends_on:
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      TONEMILL_REDIS_URL: redis://redis:6379/0
+      TONEMILL_S3_ENDPOINT_URL: http://minio:9000
+      TONEMILL_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-tonemill}
+      TONEMILL_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-tonemill-dev-only}
+      TONEMILL_S3_BUCKET: tonemill-dev
+      TONEMILL_JOB_TTL_SECONDS: 86400
+      TONEMILL_GPU_CONCURRENCY: 1
+    depends_on:
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      TONEMILL_API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  minio-data:

@@ -1,0 +1,75 @@
+# PRODUCTION — all-in-one. `docker compose up -d` alone brings this live: no -f flags,
+# no bundled MinIO (points at the existing external MinIO/S3 instance via env vars).
+# GPU reservation is baked in — this file assumes the home GPU host, driver 580.x,
+# NVIDIA Container Toolkit already confirmed working (`--gpus all`).
+#
+# NVIDIA_DRIVER_CAPABILITIES=all (not just compute/utility): libplacebo's Vulkan pass
+# needs the `graphics` capability alongside CUDA/NVENC — verify this on first run per
+# quickstart.md; it was validated on the bare host, not yet inside a container.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      TONEMILL_REDIS_URL: redis://redis:6379/0
+      TONEMILL_S3_ENDPOINT_URL: ${TONEMILL_S3_ENDPOINT_URL}
+      # Only set this if the existing MinIO's browser-facing address differs from
+      # TONEMILL_S3_ENDPOINT_URL (e.g. an internal hostname vs. a public one) -- presigned
+      # URLs must resolve from the client's browser, not just from this container.
+      TONEMILL_S3_PUBLIC_ENDPOINT_URL: ${TONEMILL_S3_PUBLIC_ENDPOINT_URL:-${TONEMILL_S3_ENDPOINT_URL}}
+      TONEMILL_S3_ACCESS_KEY_ID: ${TONEMILL_S3_ACCESS_KEY_ID}
+      TONEMILL_S3_SECRET_ACCESS_KEY: ${TONEMILL_S3_SECRET_ACCESS_KEY}
+      TONEMILL_S3_BUCKET: ${TONEMILL_S3_BUCKET}
+      TONEMILL_JOB_TTL_SECONDS: ${TONEMILL_JOB_TTL_SECONDS:-86400}
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    restart: unless-stopped
+    environment:
+      TONEMILL_REDIS_URL: redis://redis:6379/0
+      TONEMILL_S3_ENDPOINT_URL: ${TONEMILL_S3_ENDPOINT_URL}
+      TONEMILL_S3_ACCESS_KEY_ID: ${TONEMILL_S3_ACCESS_KEY_ID}
+      TONEMILL_S3_SECRET_ACCESS_KEY: ${TONEMILL_S3_SECRET_ACCESS_KEY}
+      TONEMILL_S3_BUCKET: ${TONEMILL_S3_BUCKET}
+      TONEMILL_JOB_TTL_SECONDS: ${TONEMILL_JOB_TTL_SECONDS:-86400}
+      TONEMILL_GPU_CONCURRENCY: ${TONEMILL_GPU_CONCURRENCY:-1}
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: all
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      TONEMILL_API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  redis-data:
