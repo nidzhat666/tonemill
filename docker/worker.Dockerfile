@@ -42,8 +42,14 @@ ARG FFMPEG_RELEASE_TAG
 ARG FFMPEG_ASSET
 ARG FFMPEG_SHA256
 
+# libvulkan1: the generic Vulkan loader ffmpeg/libplacebo dynamically link against at
+# runtime. The NVIDIA Container Toolkit mounts the NVIDIA Vulkan ICD (nvidia_icd.json +
+# libGLX_nvidia.so) into the container, but that alone isn't enough -- confirmed on a real
+# RTX 3080 Ti that without a loader present at all, libplacebo fails with "Instance API
+# version 1.0.0 is lower than the minimum required version of 1.2.0" (a sentinel/fallback
+# value, not a real negotiated version) and hlg-gpu fails outright.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl xz-utils ca-certificates \
+    curl xz-utils ca-certificates libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned ffmpeg — see the header comment above before ever changing FFMPEG_RELEASE_TAG.
