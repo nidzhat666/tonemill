@@ -40,7 +40,11 @@ async def detect_gpu_encoder_available(ffmpeg_path: str, encoder: str = "hevc_nv
     hevc_nvenc, so that check reports "available" even on hosts with no real NVIDIA GPU/driver
     at all (confirmed: `auto` picked hlg-gpu on a non-GPU host, which then failed encoding).
     This runs a trivial one-frame encode instead, which only succeeds if the encoder can
-    genuinely initialize against real hardware.
+    genuinely initialize against real hardware. The probe frame is 256x256, not smaller --
+    confirmed on a real RTX 3080 Ti that hevc_nvenc rejects 64x64 and 128x128 with "Frame
+    dimensions are less than the minimum supported value" even though the encoder and GPU are
+    both genuinely available; 256x256 is comfortably above NVENC's minimum while still trivial
+    to encode.
     """
     try:
         process = await asyncio.create_subprocess_exec(
@@ -52,7 +56,7 @@ async def detect_gpu_encoder_available(ffmpeg_path: str, encoder: str = "hevc_nv
             "-f",
             "lavfi",
             "-i",
-            "color=c=black:s=64x64:d=0.1",
+            "color=c=black:s=256x256:d=0.1",
             "-frames:v",
             "1",
             "-c:v",
