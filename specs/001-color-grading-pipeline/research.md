@@ -149,3 +149,25 @@ Tonemill's default already sits well up the quality end of this spectrum; `max_q
 **Decision**: `detect_gpu_encoder_available` now attempts a trivial one-frame real encode (`-f lavfi -i color=... -frames:v 1 -c:v hevc_nvenc -f null -`) and checks the exit code, instead of grepping `-encoders`. Only a genuine, working hardware initialization reports "available." Verified: against the actual pinned worker image (which does have `hevc_nvenc` compiled in) on a host with no real GPU, the fixed check now correctly returns `False` where the old one returned `True`.
 
 **Alternatives considered**: Checking for `/dev/nvidia*` device nodes or an `nvidia-smi` call instead of exercising ffmpeg directly -- rejected because the actual failure mode is specifically "ffmpeg can't use the encoder," and the most direct test of that claim is asking ffmpeg to use it, not inferring it from adjacent signals that could themselves be wrong (e.g., devices present but driver/container capability misconfigured -- exactly research.md #4's still-open Vulkan/libplacebo risk, which this same reasoning would apply to if it ever needs its own capability check).
+
+## 18. Real GPU hardware finally available: NVENC/CUDA confirmed working, Vulkan/libplacebo blocked by host config
+
+**Finding**: specs/003-homeserver-cicd-deploy deployed Tonemill to a real RTX 3080 Ti host for
+the first time. This surfaced two more real, previously-undetectable-without-real-hardware bugs
+(fixed) and one host-level infrastructure gap (not fixed by that feature, root-caused):
+
+- `detect_gpu_encoder_available`'s probe frame (64x64) was below `hevc_nvenc`'s real minimum
+  encode dimensions on actual hardware -- fixed, now 256x256 (see registry.py).
+- `worker.Dockerfile` was missing `libvulkan1`/`libx11-6`/`libxext6`, so libplacebo's Vulkan
+  init failed even before reaching the real driver -- fixed.
+- With those fixed, `hlg-gpu` still fails: CUDA decode + `hevc_nvenc` encode are confirmed
+  genuinely working (13.8x realtime) in isolation, but libplacebo's Vulkan device creation
+  fails with `VK_ERROR_INCOMPATIBLE_DRIVER`, root-caused to the production host running the
+  NVIDIA Container Toolkit's legacy (non-CDI) mode, which doesn't fully wire up a working
+  Vulkan ICD inside containers. Full detail: specs/003-homeserver-cicd-deploy/research.md #9.
+
+**Current status**: `hlg-cpu` is confirmed working end-to-end in production on real hardware
+(the application is fully usable today). `hlg-gpu` needs a host-level NVIDIA Container Toolkit
+CDI migration before it can work -- a cross-cutting host change affecting every GPU stack on
+that server, not a Tonemill code change, so it's tracked as a distinct follow-up rather than
+folded into this spec's scope.
