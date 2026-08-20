@@ -14,6 +14,10 @@ dependencies = [
     "pydantic-settings>=2.6",
     "redis>=5.1",
     "structlog>=24.4",
+    # Used by tools/tune_profile.py (FR-017) AND hlg-gpu's per-source auto-contrast
+    # (research.md #11) -- the latter runs in the worker at job time, so this is a real
+    # runtime dependency now, not dev-only.
+    "numpy>=2.0",
 ]
 
 [dependency-groups]
@@ -27,9 +31,6 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.7",
     "ty>=0.0.1a1",
-    # tools/tune_profile.py only (FR-017) -- pixel-array clipping analysis. Not installed
-    # into API/worker production images (they run `uv sync --no-dev`).
-    "numpy>=2.0",
 ]
 
 [build-system]
