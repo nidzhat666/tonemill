@@ -15,6 +15,13 @@ const forward: RequestHandler = async ({ request, params, url }) => {
 	for (const [key, value] of request.headers) {
 		if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) headers.set(key, value);
 	}
+	// Force a fresh connection per request to the API: Uvicorn's default keep-alive
+	// timeout (5s) is shorter than undici's connection-pool idle timeout, so pooling
+	// here intermittently reuses a socket the API already closed -- Uvicorn then parses
+	// the reused write as a malformed request and returns a bare 404, not the requested
+	// route (reproduced: every request after an 8s+ idle gap failed, back-to-back ones
+	// never did).
+	headers.set('connection', 'close');
 
 	const hasBody = !['GET', 'HEAD'].includes(request.method);
 	const response = await fetch(target, {
