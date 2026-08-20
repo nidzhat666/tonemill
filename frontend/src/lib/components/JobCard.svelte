@@ -65,9 +65,13 @@
 		return 'queued';
 	}
 
-	/** Never shows 100% while still running -- only `done` does (FR-005). */
+	/** Never shows 100% while still running -- only `done` does (FR-005). Not floored to an
+	 * integer: on a slow job the last stretch of real backend progress (99.0 -> 99.9) could
+	 * otherwise render as a static "99%" for many real seconds, reading as stuck rather than
+	 * slow -- see research.md #12 (confirmed the backend genuinely keeps advancing here, this
+	 * was purely a display issue). */
 	function cappedRunningPercent(progressPct: number | undefined): number {
-		return Math.min(99, Math.floor(progressPct ?? 0));
+		return Math.min(99.9, progressPct ?? 0);
 	}
 
 	let state = $derived(visualState(job));
@@ -96,7 +100,7 @@
 					? Math.floor(job.uploadPercent)
 					: cappedRunningPercent(job.progressPct)}
 			<Progress value={pct} class="mt-1" indicatorClass={style.bar} />
-			<p class="text-muted-foreground text-xs">{pct}%</p>
+			<p class="text-muted-foreground text-xs">{state === 'uploading' ? pct : pct.toFixed(1)}%</p>
 		{/if}
 
 		{#if state === 'failed'}
