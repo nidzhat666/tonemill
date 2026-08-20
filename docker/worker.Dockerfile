@@ -42,17 +42,13 @@ ARG FFMPEG_RELEASE_TAG
 ARG FFMPEG_ASSET
 ARG FFMPEG_SHA256
 
-# libvulkan1: the generic Vulkan loader ffmpeg/libplacebo dynamically link against at
-# runtime. The NVIDIA Container Toolkit mounts the NVIDIA Vulkan ICD (nvidia_icd.json +
-# libGLX_nvidia.so) into the container, but that alone isn't enough -- confirmed on a real
-# RTX 3080 Ti in two steps: first without any loader, libplacebo failed with "Instance API
-# version 1.0.0 is lower than the minimum required version of 1.2.0" (a sentinel/fallback
-# value, not a real negotiated version); with libvulkan1 added, the loader then found the ICD
-# but `ldd` on libGLX_nvidia.so.0 showed libX11.so.6/libXext.so.6 as unresolved -- the NVIDIA
-# driver's Vulkan implementation links against X11 client libraries even for this headless,
-# no-display encode path, so libx11-6/libxext6 are required too, not just the Vulkan loader.
+# No Vulkan runtime deps here (libvulkan1/libx11-6/libxext6) -- hlg-gpu no longer uses
+# libplacebo/Vulkan (research.md #11: reliably fails to initialize under this host's Docker
+# mount namespace, not fixable). It uses `tonemap_opencl` instead, which needs nothing beyond
+# what the NVIDIA Container Toolkit already mounts in -- confirmed via `ldd` that the injected
+# libnvidia-opencl.so.1 has zero X11/Vulkan dependencies (just libc/libm/libpthread/librt).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl xz-utils ca-certificates libvulkan1 libx11-6 libxext6 \
+    curl xz-utils ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned ffmpeg — see the header comment above before ever changing FFMPEG_RELEASE_TAG.

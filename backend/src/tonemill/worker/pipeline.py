@@ -80,7 +80,7 @@ async def _grade(
 
         await job_store.update(job_id, stage=JobStage.PROCESSING, progress_pct=0.0)
 
-        command = profile.build_command(source_path, output_path, max_quality=max_quality)
+        command = await profile.build_command(source_path, output_path, max_quality=max_quality)
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
         )

@@ -15,7 +15,7 @@ class _FakeProfile(GradingProfile):
     async def is_available(self) -> bool:
         return self._available
 
-    def build_command(self, source_path, output_path, *, max_quality=False):  # noqa: ANN001
+    async def build_command(self, source_path, output_path, *, max_quality=False):  # noqa: ANN001
         raise NotImplementedError
 
 

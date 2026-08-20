@@ -62,12 +62,18 @@ def _probe_dimensions(ffprobe_path: str, video_path: str) -> tuple[int, int]:
 
 
 def _extract_frames(
-    ffmpeg_path: str, video_path: str, filter_expr: str, width: int, height: int
+    ffmpeg_path: str,
+    video_path: str,
+    filter_expr: str,
+    width: int,
+    height: int,
+    extra_args: list[str],
 ) -> np.ndarray:
     """Run `filter_expr` over the scene and return sampled frames as (N, H, W, 3) uint8."""
     cmd = [
         ffmpeg_path,
         "-y",
+        *extra_args,
         "-i",
         video_path,
         "-vf",
@@ -98,6 +104,7 @@ def evaluate_candidate(
     scenes: list[str],
     filter_template: str,
     candidate: Candidate,
+    extra_args: list[str],
 ) -> tuple[float, dict[str, float]]:
     """Returns (worst-case clipping fraction across all scenes, per-scene breakdown)."""
     filter_expr = filter_template.format(
@@ -106,7 +113,7 @@ def evaluate_candidate(
     per_scene: dict[str, float] = {}
     for scene in scenes:
         width, height = _probe_dimensions(ffprobe_path, scene)
-        frames = _extract_frames(ffmpeg_path, scene, filter_expr, width, height)
+        frames = _extract_frames(ffmpeg_path, scene, filter_expr, width, height, extra_args)
         per_scene[scene] = worst_case_clip_fraction(frames)
     return max(per_scene.values()), per_scene
 
@@ -119,6 +126,7 @@ def find_best_candidate(
     contrast_values: list[float],
     saturation_values: list[float],
     clip_threshold: float,
+    extra_args: list[str],
 ) -> Candidate | None:
     """Sweeps candidates (highest contrast first) and returns the first (highest) one whose
     worst-scene clipping stays under the threshold, or None if every candidate exceeds it.
@@ -130,7 +138,7 @@ def find_best_candidate(
     )
     for candidate in candidates:
         worst, per_scene = evaluate_candidate(
-            ffmpeg_path, ffprobe_path, scenes, filter_template, candidate
+            ffmpeg_path, ffprobe_path, scenes, filter_template, candidate, extra_args
         )
         status = "OK" if worst < clip_threshold else "exceeds threshold"
         print(
@@ -167,6 +175,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clip-threshold", type=float, default=0.003)
     parser.add_argument("--ffmpeg-path", default="ffmpeg")
     parser.add_argument("--ffprobe-path", default="ffprobe")
+    parser.add_argument(
+        "--extra-ffmpeg-arg",
+        action="append",
+        default=[],
+        dest="extra_args",
+        help="extra global ffmpeg arg inserted before -i, repeatable "
+        '(e.g. --extra-ffmpeg-arg "-init_hw_device" --extra-ffmpeg-arg "opencl=ocl:0.0")',
+    )
     args = parser.parse_args(argv)
 
     if len(args.scenes) < 2:
@@ -183,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         args.contrast,
         args.saturation,
         args.clip_threshold,
+        args.extra_args,
     )
     if best is None:
         print("No candidate stayed under the clipping threshold.", file=sys.stderr)

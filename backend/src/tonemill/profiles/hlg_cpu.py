@@ -35,7 +35,7 @@ class HlgCpuProfile(GradingProfile):
     async def is_available(self) -> bool:
         return is_ffmpeg_available(self._settings.ffmpeg_path)
 
-    def build_command(
+    async def build_command(
         self, source_path: Path, output_path: Path, *, max_quality: bool = False
     ) -> list[str]:
         """max_quality is GPU-only (FR-029); the worker already rejects it before ever

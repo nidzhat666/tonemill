@@ -35,10 +35,14 @@ class GradingProfile(ABC):
         """Whether this profile can actually run on the current host."""
 
     @abstractmethod
-    def build_command(
+    async def build_command(
         self, source_path: Path, output_path: Path, *, max_quality: bool = False
     ) -> list[str]:
         """Build the ffmpeg argv for one decode/tone-map/grade/encode pass.
+
+        Async because a profile may need to probe the source first (e.g. hlg-gpu's
+        per-source auto-contrast measurement, research.md #11) before it can build the
+        command -- not just format a fixed template.
 
         max_quality swaps the encoder's quality target for a near-lossless one in the SAME
         pass (FR-028) -- callers must reject it before calling this on a non-GPU profile.
@@ -75,7 +79,7 @@ class NotImplementedProfile(GradingProfile):
     async def is_available(self) -> bool:
         return False
 
-    def build_command(
+    async def build_command(
         self, source_path: Path, output_path: Path, *, max_quality: bool = False
     ) -> list[str]:
         raise NotImplementedError(f"profile '{self.name}' is registered but not implemented")
