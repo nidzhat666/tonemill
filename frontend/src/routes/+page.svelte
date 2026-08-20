@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type ProfileInfo } from '$lib/api-client';
 	import { startUpload, uploadFile } from '$lib/upload';
-	import { jobsStore } from '$lib/stores/jobs.svelte';
+	import { isDismissable, jobsStore, type FileJob } from '$lib/stores/jobs.svelte';
 	import { pollJob } from '$lib/polling';
 	import JobCard from '$lib/components/JobCard.svelte';
 	import * as Select from '$lib/components/ui/select/index.js';
@@ -11,6 +11,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
 	import UploadIcon from '@lucide/svelte/icons/upload';
+	import ListXIcon from '@lucide/svelte/icons/list-x';
 
 	let profiles = $state<ProfileInfo[]>([]);
 	let selectedProfile = $state('auto');
@@ -96,6 +97,19 @@
 			});
 		}
 	}
+
+	let hasDismissable = $derived(jobsStore.items.some(isDismissable));
+
+	async function handleDismiss(job: FileJob) {
+		if (!job.jobId) return;
+		await api.dismissJob(job.jobId);
+		jobsStore.remove(job.id);
+	}
+
+	async function handleDismissAll() {
+		await api.dismissAllJobs();
+		jobsStore.clearDismissable();
+	}
 </script>
 
 <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 md:px-8">
@@ -157,8 +171,14 @@
 				No jobs yet — upload a file to get started.
 			</div>
 		{:else}
+			<div class="flex justify-end">
+				<Button variant="outline" size="sm" disabled={!hasDismissable} onclick={handleDismissAll}>
+					<ListXIcon />
+					Dismiss all
+				</Button>
+			</div>
 			{#each jobsStore.items as job (job.id)}
-				<JobCard {job} />
+				<JobCard {job} onDismiss={handleDismiss} />
 			{/each}
 		{/if}
 	</section>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FileJob } from '$lib/stores/jobs.svelte';
+	import { isDismissable, type FileJob } from '$lib/stores/jobs.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Progress } from '$lib/components/ui/progress/index.js';
@@ -10,8 +10,9 @@
 	import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
 	import CircleXIcon from '@lucide/svelte/icons/circle-x';
 	import DownloadIcon from '@lucide/svelte/icons/download';
+	import XIcon from '@lucide/svelte/icons/x';
 
-	let { job }: { job: FileJob } = $props();
+	let { job, onDismiss }: { job: FileJob; onDismiss?: (job: FileJob) => void } = $props();
 
 	type VisualState = 'uploading' | 'queued' | 'running' | 'done' | 'failed';
 
@@ -84,10 +85,17 @@
 	<Card.Content class="flex flex-col gap-1">
 		<div class="flex items-center justify-between gap-2">
 			<p class="text-foreground min-w-0 flex-1 truncate text-sm font-medium">{job.filename}</p>
-			<Badge class="shrink-0 {style.badge}">
-				<StatusIcon class="size-3 {state === 'running' ? 'animate-spin' : ''}" />
-				{state === 'running' ? stageText : style.badgeLabel}
-			</Badge>
+			<div class="flex shrink-0 items-center gap-2">
+				<Badge class={style.badge}>
+					<StatusIcon class="size-3 {state === 'running' ? 'animate-spin' : ''}" />
+					{state === 'running' ? stageText : style.badgeLabel}
+				</Badge>
+				{#if state === 'failed' && isDismissable(job) && onDismiss}
+					<Button variant="ghost" size="icon-xs" title="Dismiss" onclick={() => onDismiss?.(job)}>
+						<XIcon />
+					</Button>
+				{/if}
+			</div>
 		</div>
 
 		{#if job.resolvedProfile}

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TONEMILL_")
 
     redis_url: str = "redis://localhost:6379/0"
+    mongo_url: str = "mongodb://localhost:27017"
+    mongo_db: str = "tonemill"
 
     s3_endpoint_url: str | None = Field(
         default=None,

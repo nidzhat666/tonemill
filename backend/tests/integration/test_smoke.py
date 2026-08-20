@@ -4,11 +4,14 @@ support aiobotocore's async response objects, so this runs moto as an actual loc
 server instead -- aioboto3 then just talks normal HTTP to it, no mocking magic needed.
 """
 
+import uuid
+
 import boto3
 import fakeredis
 import pytest
 from fastapi.testclient import TestClient
 from moto.server import ThreadedMotoServer
+from pymongo import AsyncMongoClient
 
 import tonemill.api.main as api_main
 import tonemill.dependencies as shared_dependencies
@@ -18,7 +21,7 @@ _BUCKET = "tonemill-test"
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, mongo_url):
     server = ThreadedMotoServer(port=0)
     server.start()
     host, port = server.get_host_and_port()
@@ -30,6 +33,8 @@ def client(monkeypatch):
         s3_secret_access_key="test",
         s3_bucket=_BUCKET,
         s3_region="us-east-1",
+        mongo_url=mongo_url,
+        mongo_db=f"tonemill_test_{uuid.uuid4().hex}",
     )
     boto3.client(
         "s3",
@@ -45,10 +50,19 @@ def client(monkeypatch):
         shared_dependencies.get_job_store,
         shared_dependencies.get_upload_store,
         shared_dependencies.get_registry,
+        shared_dependencies.get_mongo_client,
+        shared_dependencies.get_video_store,
+        shared_dependencies.get_folder_store,
     ):
         cached.cache_clear()
     monkeypatch.setattr(shared_dependencies, "get_settings", lambda: settings)
     monkeypatch.setattr(shared_dependencies, "get_redis_client", lambda: fake_redis)
+    # A fresh AsyncMongoClient per test, not the process-cached one (research.md #1's
+    # per-job-run rationale applies here too: it binds to the event loop it's created on, and
+    # each test's TestClient portal runs its own).
+    monkeypatch.setattr(
+        shared_dependencies, "get_mongo_client", lambda: AsyncMongoClient(mongo_url)
+    )
     monkeypatch.setattr(api_main, "get_settings", lambda: settings)
 
     with TestClient(api_main.create_app()) as test_client:

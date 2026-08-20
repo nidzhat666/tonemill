@@ -6,6 +6,19 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -50,6 +63,7 @@ services:
       - "8000:8000"
     environment:
       TONEMILL_REDIS_URL: redis://redis:6379/0
+      TONEMILL_MONGO_URL: mongodb://mongo:27017
       # Internal (container-to-container) vs. public (browser-facing, baked into presigned
       # URLs) MinIO endpoints necessarily differ here -- "minio" only resolves inside the
       # compose network, but the browser uploading a file runs on the host, outside it.
@@ -62,6 +76,8 @@ services:
     depends_on:
       redis:
         condition: service_started
+      mongo:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
 
@@ -71,6 +87,7 @@ services:
       dockerfile: docker/worker.Dockerfile
     environment:
       TONEMILL_REDIS_URL: redis://redis:6379/0
+      TONEMILL_MONGO_URL: mongodb://mongo:27017
       TONEMILL_S3_ENDPOINT_URL: http://minio:9000
       TONEMILL_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-tonemill}
       TONEMILL_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-tonemill-dev-only}
@@ -80,6 +97,8 @@ services:
     depends_on:
       redis:
         condition: service_started
+      mongo:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
 
@@ -96,3 +115,4 @@ services:
 
 volumes:
   minio-data:
+  mongo-data:

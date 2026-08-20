@@ -1,5 +1,8 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import datetime
 
 
 async def probe_duration_ms(ffprobe_path: str, source_path: str) -> int:
@@ -20,6 +23,49 @@ async def probe_duration_ms(ffprobe_path: str, source_path: str) -> int:
     if process.returncode != 0:
         raise RuntimeError(f"ffprobe exited with code {process.returncode}")
     return int(float(stdout.decode().strip()) * 1000)
+
+
+@dataclass
+class SourceInfo:
+    duration_ms: int
+    recorded_created_at: datetime | None
+
+
+async def probe_source_info(ffprobe_path: str, source_path: str) -> SourceInfo:
+    """Probes duration and the source's own recorded creation date in one combined ffprobe
+    call (FR-017, research.md #4) -- one source read, not two. `recorded_created_at` is None
+    when the source has no `creation_time` tag; the caller falls back to the job's own
+    submission time in that case.
+    """
+    process = await asyncio.create_subprocess_exec(
+        ffprobe_path,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration:format_tags=creation_time",
+        "-of",
+        "json",
+        source_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await process.communicate()
+    if process.returncode != 0:
+        raise RuntimeError(f"ffprobe exited with code {process.returncode}")
+    fmt = json.loads(stdout.decode())["format"]
+    duration_ms = int(float(fmt["duration"]) * 1000)
+    creation_time = fmt.get("tags", {}).get("creation_time")
+    return SourceInfo(
+        duration_ms=duration_ms,
+        recorded_created_at=_parse_creation_time(creation_time) if creation_time else None,
+    )
+
+
+def _parse_creation_time(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 async def iter_progress_percent(

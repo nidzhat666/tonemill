@@ -48,6 +48,21 @@ export interface JobStatusResponse {
 	error: string | null;
 }
 
+export interface VideoResponse {
+	video_id: string;
+	display_name: string;
+	profile: string;
+	recorded_created_at: string;
+	folder_id: string | null;
+	result_url: string;
+}
+
+export interface FolderResponse {
+	folder_id: string;
+	name: string;
+	video_count: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(`/api${path}`, {
 		...init,
@@ -61,7 +76,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		} catch {
 			// non-JSON error body; fall back to statusText
 		}
-		throw new Error(`${response.status}: ${detail}`);
+		// No numeric status prefix in the message itself -- callers display error.message
+		// directly to the user (e.g. FR-022's friendly duplicate-submission rejection), who
+		// shouldn't have to parse an HTTP status code to understand what happened.
+		throw new Error(detail);
 	}
 	if (response.status === 204) return undefined as T;
 	return (await response.json()) as T;
@@ -113,5 +131,39 @@ export const api = {
 
 	listJobs() {
 		return request<JobStatusResponse[]>('/jobs');
+	},
+
+	dismissJob(jobId: string) {
+		return request<void>(`/jobs/${jobId}/dismiss`, { method: 'POST' });
+	},
+
+	dismissAllJobs() {
+		return request<{ dismissed: number }>('/jobs/dismiss-all', { method: 'POST' });
+	},
+
+	listVideos() {
+		return request<VideoResponse[]>('/videos');
+	},
+
+	moveVideos(videoIds: string[], folderId: string | null) {
+		return request<{ moved: number }>('/videos/move', {
+			method: 'POST',
+			body: JSON.stringify({ video_ids: videoIds, folder_id: folderId })
+		});
+	},
+
+	listFolders() {
+		return request<FolderResponse[]>('/folders');
+	},
+
+	createFolder(name: string) {
+		return request<FolderResponse>('/folders', {
+			method: 'POST',
+			body: JSON.stringify({ name })
+		});
+	},
+
+	deleteFolder(folderId: string) {
+		return request<void>(`/folders/${folderId}`, { method: 'DELETE' });
 	}
 };

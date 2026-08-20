@@ -35,10 +35,20 @@ class Job(BaseModel):
     result_key: str | None = None
     error: str | None = None
     created_at: datetime
+    dismissed: bool = False
 
 
 class JobNotFoundError(Exception):
     """Raised when a job's Redis record is missing -- never created, or its TTL expired."""
+
+
+class JobNotDismissableError(Exception):
+    """Raised when dismissing a job still `queued`/`running` (FR-004's "in progress" jobs
+    can't be dismissed, individually or via "Dismiss all").
+    """
+
+
+_DISMISSABLE_STATUSES = frozenset({JobStatus.DONE, JobStatus.FAILED})
 
 
 def _to_hash(job: Job) -> dict[str, str]:
@@ -55,6 +65,7 @@ def _to_hash(job: Job) -> dict[str, str]:
         "result_key": job.result_key or "",
         "error": job.error or "",
         "created_at": job.created_at.isoformat(),
+        "dismissed": "1" if job.dismissed else "0",
     }
 
 
@@ -71,6 +82,7 @@ def _from_hash(data: dict[str, str]) -> Job:
         result_key=data["result_key"] or None,
         error=data["error"] or None,
         created_at=datetime.fromisoformat(data["created_at"]),
+        dismissed=data.get("dismissed") == "1",
     )
 
 
@@ -105,13 +117,18 @@ class JobStore:
             return None
         return _from_hash(data)
 
-    async def list_all(self) -> list[Job]:
-        """Every non-expired job in Redis, newest first -- not scoped to any one client."""
+    async def list_all(self, *, include_dismissed: bool = False) -> list[Job]:
+        """Every non-expired job in Redis, newest first -- not scoped to any one client.
+        Excludes dismissed jobs by default (FR-002-FR-006): dismissal is applied here, not
+        left for callers to filter.
+        """
         jobs: list[Job] = []
         async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*"):
             data = await hgetall_str(self._redis, key)
             if data:
                 jobs.append(_from_hash(data))
+        if not include_dismissed:
+            jobs = [job for job in jobs if not job.dismissed]
         jobs.sort(key=lambda job: job.created_at, reverse=True)
         return jobs
 
@@ -122,6 +139,27 @@ class JobStore:
         updated = job.model_copy(update=fields)
         await self._write(updated)
         return updated
+
+    async def dismiss(self, job_id: str) -> Job:
+        job = await self.get(job_id)
+        if job is None:
+            raise JobNotFoundError(job_id)
+        if job.status not in _DISMISSABLE_STATUSES:
+            raise JobNotDismissableError(job_id)
+        return await self.update(job_id, dismissed=True)
+
+    async def dismiss_all(self) -> int:
+        """Dismisses every `done`/`failed`, not-yet-dismissed job (FR-003). Returns the count
+        actually dismissed -- 0 when there's nothing eligible, never an error.
+        """
+        eligible = [
+            job
+            for job in await self.list_all(include_dismissed=True)
+            if not job.dismissed and job.status in _DISMISSABLE_STATUSES
+        ]
+        for job in eligible:
+            await self.update(job.job_id, dismissed=True)
+        return len(eligible)
 
     async def _write(self, job: Job) -> None:
         key = self._key(job.job_id)

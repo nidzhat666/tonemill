@@ -51,6 +51,14 @@ function fromServerJob(job: JobStatusResponse): FileJob {
 	};
 }
 
+/** A job the dashboard can dismiss: has a server-side job record, and isn't in progress
+ * (FR-002-FR-004) -- a still-uploading or not-yet-submitted local entry has no jobId yet and
+ * is never dismissable.
+ */
+export function isDismissable(job: FileJob): boolean {
+	return Boolean(job.jobId) && (job.status === 'done' || job.status === 'failed');
+}
+
 class JobsStore {
 	items = $state<FileJob[]>([]);
 
@@ -68,6 +76,18 @@ class JobsStore {
 	update(id: string, patch: Partial<FileJob>): void {
 		const job = this.items.find((j) => j.id === id);
 		if (job) Object.assign(job, patch);
+	}
+
+	/** Drops one job from the dashboard view only -- never touches its video (FR-005). */
+	remove(id: string): void {
+		this.items = this.items.filter((j) => j.id !== id);
+	}
+
+	/** Drops every dismissable job (FR-003) -- server-side dismissal already happened by the
+	 * time this is called; this just reflects that locally without a full re-fetch.
+	 */
+	clearDismissable(): void {
+		this.items = this.items.filter((j) => !isDismissable(j));
 	}
 
 	/**

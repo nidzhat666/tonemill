@@ -6,6 +6,7 @@ Request to resolve, which the worker doesn't have.
 from functools import lru_cache
 
 import redis.asyncio as redis
+from pymongo import AsyncMongoClient
 
 from tonemill.config import Settings, get_settings
 from tonemill.jobs.store import JobStore
@@ -15,6 +16,7 @@ from tonemill.profiles.hlg_cpu import HlgCpuProfile
 from tonemill.profiles.hlg_gpu import HlgGpuProfile
 from tonemill.profiles.registry import ProfileRegistry
 from tonemill.storage.s3_client import UploadSessionStore
+from tonemill.videos.store import FolderStore, VideoStore
 
 
 @lru_cache
@@ -32,6 +34,24 @@ def get_job_store() -> JobStore:
 @lru_cache
 def get_upload_store() -> UploadSessionStore:
     return UploadSessionStore(get_redis_client())
+
+
+@lru_cache
+def get_mongo_client() -> AsyncMongoClient:
+    settings = get_settings()
+    return AsyncMongoClient(settings.mongo_url)
+
+
+@lru_cache
+def get_video_store() -> VideoStore:
+    settings = get_settings()
+    return VideoStore(get_mongo_client()[settings.mongo_db])
+
+
+@lru_cache
+def get_folder_store() -> FolderStore:
+    settings = get_settings()
+    return FolderStore(get_mongo_client()[settings.mongo_db])
 
 
 def build_registry(settings: Settings) -> ProfileRegistry:

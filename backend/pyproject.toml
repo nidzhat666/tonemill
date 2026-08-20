@@ -14,6 +14,9 @@ dependencies = [
     "pydantic-settings>=2.6",
     "redis>=5.1",
     "structlog>=24.4",
+    # Native async API (pymongo.AsyncMongoClient), not Motor -- Motor is deprecated in favor
+    # of this (research.md #1).
+    "pymongo>=4.9",
     # Used by tools/tune_profile.py (FR-017) AND hlg-gpu's per-source auto-contrast
     # (research.md #11) -- the latter runs in the worker at job time, so this is a real
     # runtime dependency now, not dev-only.

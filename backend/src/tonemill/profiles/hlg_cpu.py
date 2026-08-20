@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from tonemill.config import Settings
-from tonemill.profiles.base import GradingProfile, ProfileParams
+from tonemill.profiles.base import GradingProfile, ProfileParams, mp4_playback_compatibility_args
 from tonemill.profiles.registry import is_ffmpeg_available
 
 _CONTRAST = 1.06
@@ -69,6 +69,7 @@ class HlgCpuProfile(GradingProfile):
             str(_QUALITY_CRF),
             "-color_range",
             "tv",
+            *mp4_playback_compatibility_args(),
             "-progress",
             "pipe:1",
             "-nostats",

@@ -4,7 +4,12 @@ from pathlib import Path
 import numpy as np
 
 from tonemill.config import Settings
-from tonemill.profiles.base import GradingProfile, ProfileParams, output_color_tagging_args
+from tonemill.profiles.base import (
+    GradingProfile,
+    ProfileParams,
+    mp4_playback_compatibility_args,
+    output_color_tagging_args,
+)
 from tonemill.progress.ffmpeg_progress import probe_duration_ms
 from tonemill.tools.tune_profile import worst_case_clip_fraction
 
@@ -111,6 +116,7 @@ class HlgGpuProfile(GradingProfile):
             "-b:v",
             "0",
             *output_color_tagging_args(),
+            *mp4_playback_compatibility_args(),
             "-progress",
             "pipe:1",
             "-nostats",

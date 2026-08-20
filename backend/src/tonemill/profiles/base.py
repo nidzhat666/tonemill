@@ -70,6 +70,21 @@ def output_color_tagging_args() -> list[str]:
     ]
 
 
+def mp4_playback_compatibility_args() -> list[str]:
+    """Top-level ffmpeg output flags so a graded result actually opens in macOS Quick
+    Look/Preview (FR-020). ffmpeg's mp4 muxer default-tags HEVC streams `hev1`, which
+    QuickTime/AVFoundation-based viewers refuse to play -- Apple's ecosystem requires `hvc1`
+    (research.md #2). `+faststart` moves the `moov` atom to the front so Quick Look's fast
+    preview doesn't need to read the whole file first.
+
+    Unrelated to `output_color_tagging_args` above: this is a container/tag concern, not the
+    delicate bt709 VUI-signaling one that function's own docstring already warns isn't
+    reliably reachable via top-level flags alone -- kept as a separate function rather than
+    folded into it.
+    """
+    return ["-tag:v", "hvc1", "-movflags", "+faststart"]
+
+
 class NotImplementedProfile(GradingProfile):
     """A registered-but-not-yet-implemented profile (e.g. d-log-m, FR-015)."""
 

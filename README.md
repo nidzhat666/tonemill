@@ -4,12 +4,20 @@ Open-source async GPU video color-grading pipeline. Submit HDR (HLG) footage, pi
 grading profile (or let it auto-pick the best one available), watch live progress, download
 a correctly tone-mapped Rec.709 SDR result. MIT licensed.
 
+Also has a dashboard for managing submitted jobs and a video library for organizing
+completed results into folders — see
+[`specs/004-task-dashboard-video-library/`](specs/004-task-dashboard-video-library/).
+
 Full spec, design decisions, and the end-to-end validation script live in
 [`specs/001-color-grading-pipeline/`](specs/001-color-grading-pipeline/) — see
 [`quickstart.md`](specs/001-color-grading-pipeline/quickstart.md) for the authoritative
 walkthrough. This README is the short version.
 
 ## Running it
+
+Both compose files now bundle a `mongo` service alongside Redis — no separate setup needed;
+it's the durable store behind the video library, folder organization, and duplicate-upload
+detection (Redis stays the ephemeral job/progress store it always was).
 
 **Production** (the home GPU server — driver 580.x, NVIDIA Container Toolkit already
 working, existing external MinIO/S3): everything in one file, no `-f` flags needed.

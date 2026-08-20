@@ -103,6 +103,36 @@ class S3StorageClient:
     async def upload_file(self, source: str, key: str) -> None:
         await self._client.upload_file(source, self._bucket, key)
 
+    async def object_size(self, key: str) -> int:
+        """Backs the content-fingerprint helper (research.md #3), which needs the object's
+        total size before it can compute a "last N bytes" range.
+        """
+        resp = await self._client.head_object(Bucket=self._bucket, Key=key)
+        return resp["ContentLength"]
+
+    async def read_range(self, key: str, *, start: int, end: int) -> bytes:
+        """Reads an inclusive byte range `[start, end]` without downloading the whole object
+        -- backs the content-fingerprint helper (research.md #3), which only ever needs a
+        source's size plus its first/last 1 MiB, regardless of how large the source is.
+        """
+        resp = await self._client.get_object(
+            Bucket=self._bucket, Key=key, Range=f"bytes={start}-{end}"
+        )
+        return await resp["Body"].read()
+
+    async def copy_object(self, *, source_key: str, dest_key: str) -> None:
+        """Backs folder-move re-keying (research.md #5) -- S3/MinIO has no rename primitive,
+        so a move is always copy-then-delete.
+        """
+        await self._client.copy_object(
+            Bucket=self._bucket,
+            CopySource={"Bucket": self._bucket, "Key": source_key},
+            Key=dest_key,
+        )
+
+    async def delete_object(self, key: str) -> None:
+        await self._client.delete_object(Bucket=self._bucket, Key=key)
+
 
 @asynccontextmanager
 async def open_storage_client(settings: Settings) -> AsyncIterator[S3StorageClient]:
