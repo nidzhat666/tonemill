@@ -31,7 +31,7 @@ Each maps to an acceptance scenario in `spec.md`.
    running, and `docker exec <worker-container> nvidia-smi` succeeds (worker has real GPU
    access).
 
-4. **Storage & secrets (US2)** — Confirm the running `api`/`worker` containers can create/read
+4. **Storage & secrets (US2)** — Confirm the running `tonemill-api`/`worker` containers can create/read
    objects in the new MinIO bucket via the internal endpoint, and that presigned URLs returned
    to a browser resolve via `https://s3.nidzh.com`. Confirm `homeserver-stacks/tonemill/.env` is
    not committed to git (`git status`/`git log` show it untracked, matching the repo's

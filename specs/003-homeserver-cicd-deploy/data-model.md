@@ -17,7 +17,7 @@ deployment introduces, all consumed as plain env vars (no new config file format
 | `TONEMILL_S3_ENDPOINT_URL` | api, worker | `http://minio-server:9000` — internal MinIO endpoint (research.md #4) |
 | `TONEMILL_S3_PUBLIC_ENDPOINT_URL` | api | `https://s3.nidzh.com` — browser-facing endpoint for presigned URLs |
 | `TONEMILL_S3_ACCESS_KEY_ID` / `TONEMILL_S3_SECRET_ACCESS_KEY` | api, worker | Dedicated credentials for the new `tonemill` bucket within the existing MinIO |
-| `TONEMILL_API_BASE_URL` | frontend | `http://api:8000` — internal-only; the `api` service's port is never published to the host (research.md #5) |
+| `TONEMILL_API_BASE_URL` | frontend | `http://tonemill-api:8000` — internal-only; the service is named `tonemill-api`, not `api` (research.md #10 — a bare `api` collides with another stack's own `api` service on the shared network); its port is never published to the host (research.md #5) |
 
 All of the above are supplied via a plain `.env` file placed directly in
 `homeserver-stacks/tonemill/` on the server (research.md #8) — not Infisical-managed, unlike

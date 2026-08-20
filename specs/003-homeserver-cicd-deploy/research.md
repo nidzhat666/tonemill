@@ -224,3 +224,54 @@ piece of work. Dropping the Vulkan/libplacebo tone-mapping step from `hlg-gpu` i
 CUDA-only or `zscale`-based (CPU-filter, GPU-encode-only) hybrid — rejected: changes the
 profile's actual color-science implementation to work around an infrastructure gap, which is a
 worse trade than fixing the infrastructure once, properly, host-wide.
+
+## 10. Post-deployment: intermittent 404s from the shared-hostname "api" collision with honcho
+
+**Finding**: After going live, the frontend's grading-profile dropdown intermittently showed
+only "auto" and the job list intermittently showed as empty even when jobs existed — traced to
+`GET /api/profiles` (and other `/api/*` calls) returning a genuine-looking
+`{"detail":"Not Found"}` roughly 1 in 3 times. This looked exactly like a backend routing bug
+and led down two unproductive detours before the real cause was found:
+
+1. **Wrong theory #1**: Uvicorn's default keep-alive timeout (5s) shorter than the BFF's
+   outbound connection-pool idle timeout, causing a reused-stale-socket race. Raised
+   `--timeout-keep-alive` to 75s — did not fix it (still ~30% failures after idle gaps).
+2. **Wrong theory #2**: a bug in Node's shared undici connection pool for the BFF's outbound
+   `fetch()`. Introduced a fresh, single-use `undici.Agent` dispatcher per proxied request.
+   This first broke everything (`TypeError: fetch failed`, 10/10) because it mixed an
+   `Agent` from the standalone `undici` npm package with Node's *global* `fetch`, which is
+   powered by its own separate internal undici instance — incompatible pairing. Fixed by using
+   `undici`'s own exported `fetch` consistently — but even then, still ~30% failures remained.
+   Both attempts were reverted once the real cause was found (see `git log` on
+   `frontend/src/routes/api/[...path]/+server.ts` and `docker/api.Dockerfile` for the full,
+   honest back-and-forth).
+
+**Real root cause**: `getent hosts api` from a container on `nginx-network` returned **two
+different IPs**, alternating. `homeserver-stacks/honcho/docker-compose.yml` has a service
+literally named `api`, also joined to `nginx-network` — Compose auto-registers every service's
+own name as a DNS alias on every network it joins (not just explicit `aliases:` entries), so
+with both `tonemill` and `honcho` naming a service `api` on the same shared network, Docker's
+embedded DNS round-robinned the hostname `api` between `tonemill-api-1` and `honcho-api-1`.
+Honcho is also a FastAPI app, so hitting it for a path it doesn't have (`/profiles`) returned a
+genuinely well-formed `{"detail":"Not Found"}` — indistinguishable from a real Tonemill bug
+without checking *which container* actually answered.
+
+**Decision**: Renamed the service from `api` to `tonemill-api` in
+`homeserver-stacks/tonemill/docker-compose.yml` (explicit `container_name` + `aliases` entry),
+and updated `TONEMILL_API_BASE_URL` in the server's `.env` to match. Confirmed via
+`getent hosts tonemill-api` (5/5 identical IP) and a real 8-second-gap reproduction loop against
+the live public domain (0/8 failures, versus consistent ~30% failures before). Checked every
+other stack in `homeserver-stacks` for the same collision risk against `tonemill`'s other
+service names (`worker`, `frontend`, `redis`) — no other collision exists today.
+
+**Lesson for future services on this shared network**: a generic Compose service name (`api`,
+`worker`, `app`, `web`, ...) is only safe on a *private* per-project network; anything joining
+the shared `nginx-network` needs a project-prefixed name, since Compose's automatic
+service-name aliasing has no per-project namespacing on a network shared across many unrelated
+stacks.
+
+**Alternatives considered**: Keeping the name `api` and instead using `container_name`/explicit
+network aliases only — rejected: Compose still registers the *service name* itself as an alias
+regardless of `container_name`, so this would not have removed the collision. Not joining
+`tonemill-api` to `nginx-network` at all — rejected: it genuinely needs to reach `minio-server`
+on that network for presigned-URL generation and object checks (research.md #4).

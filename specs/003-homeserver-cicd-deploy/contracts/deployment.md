@@ -18,15 +18,20 @@ depends on this.
 ## What `homeserver-stacks/tonemill/docker-compose.yml` MUST provide
 
 - **Network**: all three services join the existing external `nginx-network` (required for
-  `frontend` to be reachable via nginx-proxy-manager at `tonemill.nidzh.com`, and for `api`/
-  `worker` to reach `minio-server:9000` by container name).
-- **Ports**: Neither `api` nor `frontend` publishes a host port. `frontend` gets a stable
-  `container_name` (`tonemill-frontend`) so nginx-proxy-manager can target it by name over
-  `nginx-network` — the same pattern the `honcho` stack already uses (no `ports:` entry, joins
-  `nginx-network` with an alias). `api`'s port staying unpublished is a hard contract, not a
-  suggestion (research.md #5 — the shared-login gate depends on it); `frontend` follows the same
-  no-published-port convention for consistency with every other NPM-proxied stack in this repo,
-  even though its own exposure risk is lower.
+  `frontend` to be reachable via nginx-proxy-manager at `tonemill.nidzh.com`, and for
+  `tonemill-api`/`worker` to reach `minio-server:9000` by container name).
+- **Naming**: the API service MUST be named `tonemill-api`, not the generic `api` — the
+  original `api` name collided with `honcho`'s own service of the same name on this shared
+  network, causing Docker's DNS to round-robin between the two and intermittently route
+  requests to the wrong container (research.md #10). Any future service on this shared network
+  needs a project-prefixed name for the same reason.
+- **Ports**: Neither `tonemill-api` nor `frontend` publishes a host port. `frontend` gets a
+  stable `container_name` (`tonemill-frontend`) so nginx-proxy-manager can target it by name
+  over `nginx-network` — the same pattern the `honcho` stack already uses (no `ports:` entry,
+  joins `nginx-network` with an alias). `tonemill-api`'s port staying unpublished is a hard
+  contract, not a suggestion (research.md #5 — the shared-login gate depends on it); `frontend`
+  follows the same no-published-port convention for consistency with every other NPM-proxied
+  stack in this repo, even though its own exposure risk is lower.
 - **GPU**: `worker` gets the same GPU reservation shape already used by `cinema-agent`'s
   `jellyfin`/`plex` services on this host (`runtime: nvidia` + `deploy.resources.reservations
   .devices` with `driver: nvidia`, `capabilities: [gpu]`), plus
