@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 import type { RequestHandler } from './$types';
 
 // Backend-for-frontend proxy: the browser only ever talks to this same-origin /api/*
@@ -8,9 +8,6 @@ import type { RequestHandler } from './$types';
 const API_BASE = env.TONEMILL_API_BASE_URL ?? 'http://localhost:8000';
 
 const HOP_BY_HOP_HEADERS = new Set(['host', 'connection', 'content-length']);
-
-/** Node's fetch (undici) accepts `dispatcher`, but lib.dom.d.ts's RequestInit doesn't know it. */
-type NodeRequestInit = RequestInit & { dispatcher?: Agent };
 
 /**
  * A fresh, single-use connection per proxied request, never pooled. Reusing Node's shared
@@ -35,15 +32,14 @@ const forward: RequestHandler = async ({ request, params, url }) => {
 	const hasBody = !['GET', 'HEAD'].includes(request.method);
 	const dispatcher = freshDispatcher();
 	try {
-		const requestInit: NodeRequestInit = {
+		const response = await undiciFetch(target, {
 			method: request.method,
 			headers,
 			body: hasBody ? await request.arrayBuffer() : undefined,
 			dispatcher
-		};
-		const response = await fetch(target, requestInit);
+		});
 
-		const responseHeaders = new Headers(response.headers);
+		const responseHeaders = new Headers([...response.headers]);
 		responseHeaders.delete('content-encoding');
 		responseHeaders.delete('content-length');
 		return new Response(response.status === 204 ? null : await response.arrayBuffer(), {
