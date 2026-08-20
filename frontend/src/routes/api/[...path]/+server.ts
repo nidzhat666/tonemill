@@ -1,5 +1,4 @@
 import { env } from '$env/dynamic/private';
-import { Agent, fetch as undiciFetch } from 'undici';
 import type { RequestHandler } from './$types';
 
 // Backend-for-frontend proxy: the browser only ever talks to this same-origin /api/*
@@ -8,18 +7,6 @@ import type { RequestHandler } from './$types';
 const API_BASE = env.TONEMILL_API_BASE_URL ?? 'http://localhost:8000';
 
 const HOP_BY_HOP_HEADERS = new Set(['host', 'connection', 'content-length']);
-
-/**
- * A fresh, single-use connection per proxied request, never pooled. Reusing Node's shared
- * keep-alive pool to the API here intermittently returned a stale response (a real, older
- * `{"detail":"Not Found"}` body from an unrelated earlier request, not a fresh error) for a
- * route that genuinely exists -- reproduced live, and tuning either side's keep-alive
- * timeout didn't fully eliminate it (see docker/api.Dockerfile's history). A dedicated
- * connection that's closed after each request removes the reuse entirely.
- */
-function freshDispatcher(): Agent {
-	return new Agent({ connections: 1, pipelining: 0 });
-}
 
 const forward: RequestHandler = async ({ request, params, url }) => {
 	const target = `${API_BASE}/${params.path ?? ''}${url.search}`;
@@ -30,25 +17,19 @@ const forward: RequestHandler = async ({ request, params, url }) => {
 	}
 
 	const hasBody = !['GET', 'HEAD'].includes(request.method);
-	const dispatcher = freshDispatcher();
-	try {
-		const response = await undiciFetch(target, {
-			method: request.method,
-			headers,
-			body: hasBody ? await request.arrayBuffer() : undefined,
-			dispatcher
-		});
+	const response = await fetch(target, {
+		method: request.method,
+		headers,
+		body: hasBody ? await request.arrayBuffer() : undefined
+	});
 
-		const responseHeaders = new Headers([...response.headers]);
-		responseHeaders.delete('content-encoding');
-		responseHeaders.delete('content-length');
-		return new Response(response.status === 204 ? null : await response.arrayBuffer(), {
-			status: response.status,
-			headers: responseHeaders
-		});
-	} finally {
-		await dispatcher.close();
-	}
+	const responseHeaders = new Headers(response.headers);
+	responseHeaders.delete('content-encoding');
+	responseHeaders.delete('content-length');
+	return new Response(response.status === 204 ? null : await response.arrayBuffer(), {
+		status: response.status,
+		headers: responseHeaders
+	});
 };
 
 export const GET = forward;
