@@ -42,13 +42,16 @@ ARG FFMPEG_RELEASE_TAG
 ARG FFMPEG_ASSET
 ARG FFMPEG_SHA256
 
-# No Vulkan runtime deps here (libvulkan1/libx11-6/libxext6) -- hlg-gpu no longer uses
-# libplacebo/Vulkan (research.md #11: reliably fails to initialize under this host's Docker
-# mount namespace, not fixable). It uses `tonemap_opencl` instead, which needs nothing beyond
-# what the NVIDIA Container Toolkit already mounts in -- confirmed via `ldd` that the injected
-# libnvidia-opencl.so.1 has zero X11/Vulkan dependencies (just libc/libm/libpthread/librt).
+# libvulkan1: the generic Vulkan loader ffmpeg/libplacebo dynamically link against at
+# runtime. libx11-6/libxext6: the NVIDIA driver's GLX-backed Vulkan ICD (libGLX_nvidia.so.0)
+# links against X11 client libraries even for this headless, no-display encode path. The
+# GLX ICD itself still fails to initialize in this container regardless (research.md #11) --
+# fixed by switching to the EGL-backed ICD at container start (worker-entrypoint.sh,
+# research.md #12), not by these packages -- but libvulkan1 (the loader itself) is still
+# required either way, and libx11-6/libxext6 are cheap enough to keep rather than conditionally
+# omit.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl xz-utils ca-certificates \
+    curl xz-utils ca-certificates libvulkan1 libx11-6 libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned ffmpeg — see the header comment above before ever changing FFMPEG_RELEASE_TAG.
@@ -73,6 +76,10 @@ RUN uv sync --frozen --no-dev
 # every invocation, undoing the --no-dev build above and re-downloading it at every
 # container start. UV_NO_SYNC pins runtime `uv run` to the already-built venv as-is.
 ENV UV_NO_SYNC=1
+
+COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh
+RUN chmod +x /usr/local/bin/worker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/worker-entrypoint.sh"]
 
 # GPU concurrency default (1, max 2 per GPU per FR-018) is set via TONEMILL_GPU_CONCURRENCY
 # at runtime and passed straight to Dramatiq's own process pool (see config.py) -- not

@@ -19,51 +19,58 @@ _CLIP_THRESHOLD = 0.003
 _SAMPLE_FPS = 1
 _SAMPLE_WINDOW_SECONDS = 6
 
-# Software decode -> OpenCL tonemap -> NVENC encode. NOT `-hwaccel cuda` decode: tested and
-# confirmed this ffmpeg build has no CUDA->OpenCL frame interop (`hwupload` targeting OpenCL
-# rejects a `-hwaccel cuda` frame with "Impossible to convert between the formats supported
-# by hwupload and auto_scale" / error -38), so decode stays on CPU. Only the tonemap and
-# encode stages are GPU-accelerated here -- see the class docstring for why libplacebo/Vulkan
-# (which did use CUDA decode) isn't the implementation anymore.
-_TONEMAP_OPENCL = (
-    "format=p010le,hwupload,"
-    "tonemap_opencl=tonemap=hable:format=nv12:primaries=bt709:transfer=bt709:matrix=bt709,"
-    "hwdownload,format=nv12"
+# CUDA decode + Vulkan tonemap (libplacebo) + NVENC encode -- confirmed working end-to-end
+# in this exact container config (research.md #12). saturation stays at 1.0 (neutral) here;
+# saturation/richness comes from `vibrance` afterward instead (see class docstring for why).
+_LIBPLACEBO = (
+    "libplacebo=tonemapping=hable:contrast={contrast}:saturation=1.0:peak_detect=true:"
+    "colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
 )
 
 
 class HlgGpuProfile(GradingProfile):
-    """HLG (BT.2020) -> Rec.709 SDR: software decode + OpenCL tonemap (`tonemap_opencl`) +
-    NVENC encode.
+    """HLG (BT.2020) -> Rec.709 SDR: CUDA decode + Vulkan tonemap (`libplacebo`) + NVENC
+    encode.
 
-    NOT libplacebo/Vulkan (this profile's original implementation) -- Vulkan reliably fails
-    to initialize inside this host's Docker mount namespace (`vk_icdGetInstanceProcAddr`
-    returns NULL / VK_ERROR_INCOMPATIBLE_DRIVER), confirmed NOT fixable via CDI,
-    `--privileged`, full namespace sharing, or a newer toolkit -- ICD manifest, driver
-    library version, `/proc/driver/nvidia`, and device nodes were all confirmed
-    byte-identical to the host, yet it still fails; `nsenter`ing into the host's own mount
-    namespace makes the exact same binary work. `tonemap_opencl` was verified to genuinely
-    initialize and encode under this exact `runtime: nvidia` container config
-    (research.md #11) -- CUDA decode was tried too but this build has no CUDA->OpenCL frame
-    interop, so decode is software.
+    Vulkan/libplacebo previously failed to initialize inside this host's Docker containers
+    (`VK_ERROR_INCOMPATIBLE_DRIVER` / `vk_icdGetInstanceProcAddr` returns NULL for
+    `vkCreateInstance`) even with byte-identical ICD manifest/driver library/`/proc/driver/
+    nvidia`/device nodes to the host -- root-caused (research.md #12) to the *default* ICD,
+    `libGLX_nvidia.so.0`, which the NVIDIA driver's own docs say needs X11 client libraries
+    the container's isolated environment doesn't fully provide. The fix: switch to the
+    EGL-backed ICD, `libEGL_nvidia.so.0` -- NVIDIA's documented alternative for exactly this
+    case -- via `worker-entrypoint.sh`, which regenerates the toolkit-injected ICD manifest
+    with the library swapped and points the Vulkan loader at it (`VK_DRIVER_FILES`) before
+    the worker process starts. No CDI, no `--privileged`, no shared namespaces needed --
+    confirmed in a completely ordinary `runtime: nvidia` container.
 
-    contrast is NOT a fixed, offline-tuned constant like vibrance/unsharp are -- see
-    _auto_contrast. vibrance/unsharp stay constant because they're a taste choice, not a
-    correctness constraint; contrast varies per-source because "how much highlight headroom
-    does this specific clip have" is a measurable fact, not a taste choice, and a constant
-    tuned against a handful of reference scenes doesn't generalize to arbitrary footage
-    (confirmed: real HLG drone clips with a blown-out sky exceed the clipping threshold even
-    at contrast=1.00 -- no fixed positive value would have been safe for them).
+    `peak_detect=true` gives libplacebo continuous, per-frame-adaptive tonemapping (a
+    running estimate of scene peak luminance, not a single fixed response) -- this is what
+    was actually missing while this profile ran on `tonemap_opencl` (research.md #11's
+    interim engine, kept nowhere now): a single clip with both a shaded and a blown-out-sky
+    shot needs a different tonemap response per moment, not per source file. contrast is
+    layered on top and still auto-tuned per source (see _auto_contrast) -- peak_detect
+    smooths the HDR->SDR response itself, but doesn't know how much *additional* stylistic
+    contrast a given clip's own highlights can safely absorb, which is a separate question.
+
+    vibrance (not libplacebo's own `saturation`) + `unsharp` are what actually make the
+    output read as "rich" rather than flat -- confirmed by a real side-by-side: a plain
+    saturation multiplier and vibrance produce visibly different results at the same nominal
+    strength, because vibrance boosts already-muted colors (sky, foliage) much more than
+    already-saturated ones, and unsharp's local-contrast boost was simply absent from this
+    profile's GPU path before. Both values are hlg-cpu's own already-tuned constants, reused
+    rather than re-derived, since the "look" is meant to match across profiles -- only the
+    engine and the auto-contrast differ.
     """
 
     name = "hlg-gpu"
     source_format = "HLG/BT.2020"
     execution_path = "gpu"
     performance_reference = (
-        "not formally benchmarked on this engine yet (research.md #11) -- informally, "
-        "~53fps / ~0.88x realtime for decode+tonemap+encode alone on a 4K60 HLG source, "
-        "RTX 3080 Ti; the per-job auto-contrast measurement pass adds its own un-benchmarked "
-        "overhead on top (up to 7 short sample probes, worst case)"
+        "~38fps / ~1.24x realtime on 4K30 HLG source by the end of a short real clip, RTX "
+        "3080 Ti (research.md #12) -- informal, not a dedicated benchmark run; the per-job "
+        "auto-contrast measurement pass adds its own un-benchmarked overhead on top (up to 7 "
+        "short sample probes, worst case)"
     )
 
     def __init__(self, settings: Settings) -> None:
@@ -76,7 +83,7 @@ class HlgGpuProfile(GradingProfile):
         )
 
     async def is_available(self) -> bool:
-        return await _detect_opencl_tonemap_available(self._settings.ffmpeg_path)
+        return await _detect_vulkan_tonemap_available(self._settings.ffmpeg_path)
 
     async def build_command(
         self, source_path: Path, output_path: Path, *, max_quality: bool = False
@@ -85,12 +92,12 @@ class HlgGpuProfile(GradingProfile):
         contrast = await _auto_contrast(
             self._settings.ffmpeg_path, self._settings.ffprobe_path, source_path
         )
-        vf = f"{_TONEMAP_OPENCL},eq=contrast={contrast},vibrance=intensity={_VIBRANCE},unsharp"
+        vf = f"{_LIBPLACEBO.format(contrast=contrast)},vibrance=intensity={_VIBRANCE},unsharp"
         return [
             self._settings.ffmpeg_path,
             "-y",
-            "-init_hw_device",
-            "opencl=ocl:0.0",
+            "-hwaccel",
+            "cuda",
             "-i",
             str(source_path),
             "-vf",
@@ -111,16 +118,14 @@ class HlgGpuProfile(GradingProfile):
         ]
 
 
-async def _detect_opencl_tonemap_available(ffmpeg_path: str) -> bool:
-    """Whether the real chain this profile needs -- OpenCL device init, `tonemap_opencl`,
+async def _detect_vulkan_tonemap_available(ffmpeg_path: str) -> bool:
+    """Whether the real chain this profile needs -- Vulkan device init, `libplacebo`,
     hevc_nvenc -- actually initializes right now, not just whether ffmpeg was compiled with
     these features (see registry.detect_gpu_encoder_available's docstring for why a
-    compiled-in check alone isn't enough; the exact same blind spot is what let this
-    profile's original libplacebo/Vulkan implementation silently report "available" while
-    genuinely broken, research.md #9). The probe frame is explicitly tagged HLG/BT.2020
-    (`setparams=...`) -- confirmed required: `tonemap_opencl` rejects an untagged lavfi
-    source with "unsupported transfer function characteristic", which would make this probe
-    falsely report unavailable even when the real (correctly-tagged) production path works.
+    compiled-in check alone isn't enough; that exact blind spot is what let this profile's
+    original implementation silently report "available" while genuinely broken,
+    research.md #9). Relies on `VK_DRIVER_FILES` already being set in the process
+    environment by worker-entrypoint.sh -- inherited automatically, no special handling here.
     """
     try:
         process = await asyncio.create_subprocess_exec(
@@ -129,15 +134,12 @@ async def _detect_opencl_tonemap_available(ffmpeg_path: str) -> bool:
             "-loglevel",
             "error",
             "-y",
-            "-init_hw_device",
-            "opencl=ocl:0.0",
             "-f",
             "lavfi",
             "-i",
             "color=c=white:s=256x256:d=0.1",
             "-vf",
-            "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc,"
-            f"{_TONEMAP_OPENCL},fps=1",
+            f"{_LIBPLACEBO.format(contrast=1.0)},fps=1",
             "-frames:v",
             "1",
             "-c:v",
@@ -195,12 +197,12 @@ async def _extract_sample_frames(
         str(seek_seconds),
         "-t",
         str(_SAMPLE_WINDOW_SECONDS),
-        "-init_hw_device",
-        "opencl=ocl:0.0",
+        "-hwaccel",
+        "cuda",
         "-i",
         str(source_path),
         "-vf",
-        f"{_TONEMAP_OPENCL},eq=contrast={contrast},fps={_SAMPLE_FPS}",
+        f"{_LIBPLACEBO.format(contrast=contrast)},fps={_SAMPLE_FPS}",
         "-f",
         "rawvideo",
         "-pix_fmt",
@@ -224,6 +226,10 @@ async def _auto_contrast(ffmpeg_path: str, ffprobe_path: str, source_path: Path)
     headroom -- not a fixed constant tuned once against a handful of offline reference
     scenes -- using the same worst-case clipping-fraction metric tools/tune_profile.py uses
     (FR-011/FR-017), and pick the highest candidate that stays under the threshold.
+
+    Complements, doesn't replace, `peak_detect=true`: that smooths the HDR->SDR tonemap
+    response per-frame within a clip; this measures how much *additional* stylistic contrast
+    the clip's own highlights can absorb, which peak_detect has no opinion on.
 
     Falls back to 1.00 (no contrast boost) if every candidate exceeds the threshold, or if
     the source can't be probed/sampled at all -- fail toward the safest output, never toward
