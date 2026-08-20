@@ -42,7 +42,7 @@ In the UI:
 - Select several unsorted videos at once (multi-select) and move them into one folder in a single action (FR-011).
 - Delete that folder; confirm its videos reappear in unsorted, not deleted (FR-015).
 
-**Storage mirrors the UI (FR-019, SC-006)**: after moving a video into "Kavos shoot", list bucket contents (`mc ls` / AWS CLI) and confirm the object now lives at `results/kavos-shoot/<display_name>` — not at its original `results/unsorted/...` key.
+**Storage location is unaffected by the move, download name isn't (FR-019, FR-027, SC-006)**: time the `POST /videos/move` call — it should complete in well under a second regardless of the video's file size, since it's a Mongo-only write. List bucket contents (`mc ls` / AWS CLI) before and after the move and confirm the object's key is unchanged. Then download the moved video and confirm it still saves under its readable `<display_name>`, via the presigned URL's `Content-Disposition` header, not the object's own (opaque) key.
 
 ## 4. Duplicate submission is rejected cleanly (P4)
 

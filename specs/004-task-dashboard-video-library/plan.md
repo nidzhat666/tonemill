@@ -14,7 +14,7 @@ Turns the existing job list into two views: a **dashboard** (today's list, minus
 
 **Primary Dependencies**: Existing stack unchanged (FastAPI, Dramatiq, aioboto3, Pydantic, SvelteKit) plus **`pymongo>=4.9`** (new — native async API, not Motor; research.md #1) for the API's and worker's MongoDB access.
 
-**Storage**: Redis — unchanged role (live job/progress state, upload sessions), plus one new field (`Job.dismissed`, still TTL-bound). **MongoDB (new)** — durable `videos` and `folders` collections; source of truth for the video library, folder assignment, and duplicate-submission detection (research.md #1). S3-compatible object storage — unchanged mechanism, new key layout for results (`results/{folder-slug|"unsorted"}/{display_name}`, research.md #5) and a new `copy_object`/`delete_object` capability on `S3StorageClient` to relocate a result when its folder changes.
+**Storage**: Redis — unchanged role (live job/progress state, upload sessions), plus one new field (`Job.dismissed`, still TTL-bound). **MongoDB (new)** — durable `videos` and `folders` collections; source of truth for the video library, folder assignment, and duplicate-submission detection (research.md #1). S3-compatible object storage — unchanged: results keep the same opaque, permanent `results/{job_id}/{uuid}.mp4` key shape spec 001 already used; folder organization is a Mongo-only property and never touches S3 (research.md #5, revised 2026-08-21 after a real ~2s-per-move latency regression). The readable name still reaches every download via a presigned-URL `Content-Disposition` override (`S3StorageClient.presign_get_object`'s new `filename` param), not via the object's key.
 
 **Testing**: pytest (backend/worker, unchanged toolchain) — new fixtures for a real MongoDB in integration tests (mirroring the existing real-Redis/real-MinIO pattern in spec 001, not `mongomock`, to catch real index/constraint behavior per spec 001's own testing philosophy); Vitest + Playwright (frontend, unchanged) — new coverage for dismiss/dismiss-all, folder creation, and drag-and-drop/multi-select move.
 
@@ -22,7 +22,7 @@ Turns the existing job list into two views: a **dashboard** (today's list, minus
 
 **Project Type**: Web application — unchanged structure (FastAPI backend + SvelteKit frontend, three containers plus now Redis *and* MongoDB, plus MinIO in dev).
 
-**Performance Goals**: No change to the grading pipeline's own performance envelope (spec 001's ~1.08x-realtime GPU path is untouched — the two new output flags, `-tag:v hvc1`/`-movflags +faststart`, are muxer-level and add no measurable encode-time cost). New work is small, synchronous, request-scoped operations: the duplicate-fingerprint check is two small ranged `GET`s against the source object (bounded cost regardless of source file size, research.md #3), and folder moves are a single `copy_object`+`delete_object` per video, not a bulk data-plane operation.
+**Performance Goals**: No change to the grading pipeline's own performance envelope (spec 001's ~1.08x-realtime GPU path is untouched — the two new output flags, `-tag:v hvc1`/`-movflags +faststart`, are muxer-level and add no measurable encode-time cost). New work is small, synchronous, request-scoped operations: the duplicate-fingerprint check is two small ranged `GET`s against the source object (bounded cost regardless of source file size, research.md #3), and folder moves are a single Mongo `folder_id` write per video with zero S3 calls (research.md #5, revised 2026-08-21) — a move's latency is now independent of the video's file size, closing a real regression where it depended on an S3 copy+delete (~2s observed in production).
 
 **Constraints**: The duplicate fingerprint is a UX safeguard, not a security boundary (research.md #3) — it must stay cheap (bounded I/O per check) rather than hashing entire multi-gigabyte sources, even at the cost of not being a cryptographic identity guarantee. Folder rename and nested folders are explicitly out of scope for this iteration (spec.md Assumptions) — the schema and API surface should not pay complexity for either now.
 
@@ -83,13 +83,13 @@ backend/
 │       │   ├── store.py          # MongoDB-backed VideoStore + FolderStore (data-model.md)
 │       │   ├── fingerprint.py    # sha256(size || first 1MiB || last 1MiB) via ranged S3 GETs (research.md #3)
 │       │   ├── naming.py         # display_name formatting + disambiguation (FR-016, FR-018, research.md #4)
-│       │   └── relocate.py       # copy_object+delete_object re-key on folder move/delete (research.md #5) --
-│       │                         #   needs both S3StorageClient and VideoStore, so it's kept out of store.py
+│       │   └── relocate.py       # folder move/delete = a Video.folder_id write, no S3 calls (research.md #5)
 │       ├── jobs/
 │       │   └── store.py          # + `dismissed` field, + dismiss/dismiss-all store methods,
 │       │                         #   GET-all excludes dismissed
 │       ├── storage/
-│       │   └── s3_client.py      # + copy_object/delete_object for folder-move re-keying (research.md #5)
+│       │   └── s3_client.py      # + presign_get_object(filename=...) -> Content-Disposition override,
+│       │                         #   so a download's saved name never depends on the object's own key
 │       ├── dependencies.py       # + get_mongo_client / get_video_store / get_folder_store (lru_cache,
 │       │                         #   same pattern as get_job_store)
 │       └── config.py             # + mongo_url / mongo_db setting

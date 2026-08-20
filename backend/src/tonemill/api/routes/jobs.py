@@ -155,8 +155,14 @@ async def submit_job(
     return SubmitJobResponse(job_id=job.job_id, status=job.status.value)
 
 
-async def _to_status_response(job: Job, storage: S3StorageClient) -> JobStatusResponse:
-    result_url = await storage.presign_get_object(job.result_key) if job.result_key else None
+async def _to_status_response(
+    job: Job, storage: S3StorageClient, video_store: VideoStore
+) -> JobStatusResponse:
+    result_url = None
+    if job.result_key:
+        video = await video_store.get(job.job_id)
+        filename = video.display_name if video else None
+        result_url = await storage.presign_get_object(job.result_key, filename=filename)
     return JobStatusResponse(
         job_id=job.job_id,
         source_key=job.source_key,
@@ -175,9 +181,10 @@ async def _to_status_response(job: Job, storage: S3StorageClient) -> JobStatusRe
 async def list_jobs(
     job_store: Annotated[JobStore, Depends(get_job_store)],
     storage: Annotated[S3StorageClient, Depends(get_storage_client)],
+    video_store: Annotated[VideoStore, Depends(get_video_store)],
 ) -> list[JobStatusResponse]:
     jobs = await job_store.list_all()
-    return [await _to_status_response(job, storage) for job in jobs]
+    return [await _to_status_response(job, storage, video_store) for job in jobs]
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
@@ -185,11 +192,12 @@ async def get_job_status(
     job_id: str,
     job_store: Annotated[JobStore, Depends(get_job_store)],
     storage: Annotated[S3StorageClient, Depends(get_storage_client)],
+    video_store: Annotated[VideoStore, Depends(get_video_store)],
 ) -> JobStatusResponse:
     job = await job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found or expired")
-    return await _to_status_response(job, storage)
+    return await _to_status_response(job, storage, video_store)
 
 
 @router.post("/jobs/{job_id}/dismiss", status_code=204)

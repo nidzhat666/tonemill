@@ -58,7 +58,7 @@ Response `200`:
 
 ### `POST /videos/move`
 
-Move one or more videos into a folder, or back to unsorted — covers both the single drag-and-drop case and the multi-select bulk case (FR-010, FR-011, FR-014) with one endpoint.
+Move one or more videos into a folder, or back to unsorted — covers both the single drag-and-drop case and the multi-select bulk case (FR-010, FR-011, FR-014) with one endpoint. A move is a `Video.folder_id` write only; the underlying object's storage location never changes (FR-019, research.md #5), so this endpoint's cost doesn't depend on file size or count.
 
 Request:
 ```json
@@ -70,7 +70,7 @@ Response `200`:
 ```json
 { "moved": 3 }
 ```
-A `video_id` already in the target folder is counted as moved but causes no storage change (Edge Cases: dragging a video onto the folder it's already in is a no-op for that video).
+A `video_id` already in the target folder is counted as moved but skips even the `folder_id` write (Edge Cases: dragging a video onto the folder it's already in is a no-op for that video).
 
 Errors: `404` — `folder_id` doesn't reference an existing folder (when non-null); any unknown `video_id` in the list is silently skipped rather than failing the whole batch, so one stale ID (e.g. a video deleted by another session) never blocks moving the rest.
 
@@ -106,5 +106,5 @@ Errors: `404` — unknown folder.
 ## Notes for `/speckit-tasks`
 
 - The duplicate-fingerprint computation (research.md #3) happens inside `POST /jobs`, after the existing `s3_key`-exists check and before the `Job`/`Video` documents are created — it is not a separate endpoint.
-- `result_url` on `GET /videos` entries is minted the same way `GET /jobs/{id}`'s `result_url` already is (presigned, time-limited) — no new presigning mechanism.
+- `result_url` on `GET /videos` entries is minted the same way `GET /jobs/{id}`'s `result_url` already is (presigned, time-limited), and both now set a `Content-Disposition` response-header override so the browser saves the download under `display_name` regardless of the object's own (opaque, permanent) storage key (FR-027, research.md #5, revised 2026-08-21).
 - `POST /jobs/dismiss-all`'s `dismissed` count and `POST /videos/move`'s `moved` count are both provided so the dashboard/library UI can show "cleared 4" / "moved 3" feedback without a follow-up list re-fetch being required to know it worked (a re-fetch to refresh the view is still expected, just not to learn the outcome).

@@ -7,10 +7,15 @@
 
 	let {
 		folder,
+		videoCount,
 		onDrop,
 		onDelete
 	}: {
 		folder: FolderResponse;
+		// Live count from the library store's current videos, not `folder.video_count` --
+		// that field is a snapshot from the last GET /folders and goes stale the moment a
+		// video is moved locally (no full re-fetch happens after a move).
+		videoCount: number;
 		onDrop: (folderId: string, event: DragEvent) => void;
 		onDelete: (folderId: string) => void;
 	} = $props();
@@ -35,7 +40,7 @@
 		<div class="flex min-w-0 items-center gap-2">
 			<FolderIcon class="text-muted-foreground size-4 shrink-0" />
 			<p class="text-foreground truncate text-sm font-medium">{folder.name}</p>
-			<span class="text-muted-foreground text-xs">({folder.video_count})</span>
+			<span class="text-muted-foreground text-xs">({videoCount})</span>
 		</div>
 		<Button
 			variant="ghost"

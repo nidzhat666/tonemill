@@ -8,7 +8,7 @@ from tonemill.api.dependencies import get_storage_client
 from tonemill.dependencies import get_folder_store, get_video_store
 from tonemill.storage.s3_client import S3StorageClient
 from tonemill.videos.relocate import relocate_video
-from tonemill.videos.store import Folder, FolderStore, Video, VideoStatus, VideoStore
+from tonemill.videos.store import FolderStore, Video, VideoStatus, VideoStore
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -44,7 +44,7 @@ async def _to_video_response(video: Video, storage: S3StorageClient) -> VideoRes
         profile=video.profile,
         recorded_created_at=video.recorded_created_at,
         folder_id=video.folder_id,
-        result_url=await storage.presign_get_object(video.result_key),
+        result_url=await storage.presign_get_object(video.result_key, filename=video.display_name),
     )
 
 
@@ -62,19 +62,15 @@ async def move_videos(
     body: MoveVideosRequest,
     video_store: Annotated[VideoStore, Depends(get_video_store)],
     folder_store: Annotated[FolderStore, Depends(get_folder_store)],
-    storage: Annotated[S3StorageClient, Depends(get_storage_client)],
 ) -> MoveVideosResponse:
-    target_folder: Folder | None = None
-    if body.folder_id is not None:
-        target_folder = await folder_store.get(body.folder_id)
-        if target_folder is None:
-            raise HTTPException(status_code=404, detail="folder not found")
+    if body.folder_id is not None and await folder_store.get(body.folder_id) is None:
+        raise HTTPException(status_code=404, detail="folder not found")
 
     moved = 0
     for video_id in body.video_ids:
         video = await video_store.get(video_id)
         if video is None:
             continue
-        await relocate_video(video, target_folder, video_store, storage)
+        await relocate_video(video, body.folder_id, video_store)
         moved += 1
     return MoveVideosResponse(moved=moved)

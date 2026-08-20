@@ -106,11 +106,17 @@
 	{/if}
 
 	{#each libraryStore.folders as folder (folder.folder_id)}
+		{@const folderVideos = libraryStore.videosInFolder(folder.folder_id)}
 		<section class="mt-6">
-			<FolderCard {folder} onDrop={handleDropOnFolder} onDelete={handleDeleteFolder} />
-			{#if libraryStore.videosInFolder(folder.folder_id).length > 0}
+			<FolderCard
+				{folder}
+				videoCount={folderVideos.length}
+				onDrop={handleDropOnFolder}
+				onDelete={handleDeleteFolder}
+			/>
+			{#if folderVideos.length > 0}
 				<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-					{#each libraryStore.videosInFolder(folder.folder_id) as video (video.video_id)}
+					{#each folderVideos as video (video.video_id)}
 						<VideoCard
 							{video}
 							selected={libraryStore.isSelected(video.video_id)}

@@ -90,10 +90,17 @@ class S3StorageClient:
     async def abort_multipart_upload(self, *, key: str, upload_id: str) -> None:
         await self._client.abort_multipart_upload(Bucket=self._bucket, Key=key, UploadId=upload_id)
 
-    async def presign_get_object(self, key: str) -> str:
+    async def presign_get_object(self, key: str, *, filename: str | None = None) -> str:
+        """`filename`, when given, sets the response's `Content-Disposition` so the browser
+        saves the download under that readable name (FR-016) regardless of the object's own
+        (opaque, permanent) storage key -- no object rename/copy needed to rename a download.
+        """
+        params: dict[str, str] = {"Bucket": self._bucket, "Key": key}
+        if filename is not None:
+            params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
         return await self._presign_client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self._bucket, "Key": key},
+            Params=params,
             ExpiresIn=self._ttl,
         )
 
@@ -119,19 +126,6 @@ class S3StorageClient:
             Bucket=self._bucket, Key=key, Range=f"bytes={start}-{end}"
         )
         return await resp["Body"].read()
-
-    async def copy_object(self, *, source_key: str, dest_key: str) -> None:
-        """Backs folder-move re-keying (research.md #5) -- S3/MinIO has no rename primitive,
-        so a move is always copy-then-delete.
-        """
-        await self._client.copy_object(
-            Bucket=self._bucket,
-            CopySource={"Bucket": self._bucket, "Key": source_key},
-            Key=dest_key,
-        )
-
-    async def delete_object(self, key: str) -> None:
-        await self._client.delete_object(Bucket=self._bucket, Key=key)
 
 
 @asynccontextmanager

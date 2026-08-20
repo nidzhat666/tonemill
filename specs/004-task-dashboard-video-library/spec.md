@@ -14,6 +14,10 @@
 
 - Q: Should the original (source) files a user uploads also get renamed and organized into the same folder structure as their processed results, or should this feature's naming/folder changes apply only to the processed result files? → A: Leave source files completely untouched — current UUID-based storage key, no renaming, no folder placement. Only result files get the new naming/folder treatment.
 
+### Session 2026-08-21
+
+- Q: Moving a video into a folder was measured taking ~2 seconds (a real S3 object copy+delete per move, visible in production network timing) — should folder organization keep re-keying the underlying stored object to mirror the folder, or should the object's storage location stay fixed and folder organization live in the database only? → A: Stop re-keying storage on move. A result video's stored object gets one permanent, opaque location at grading time (matching the original pre-this-feature pattern) and is never touched again; folder membership is a database-only property. The human-readable name FR-016 requires is delivered a different way — as the filename the browser saves the download under (via the download URL's response headers) — so users still never see or download anything by an opaque identifier; only the underlying storage path is now opaque.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Downloaded results are correctly named and actually playable (Priority: P1)
@@ -51,11 +55,11 @@ A user has been submitting clips all day. The job list keeps growing with finish
 
 ### User Story 3 - Organize processed videos into folders (Priority: P3)
 
-A user has accumulated dozens of graded clips across several shoots. They open a new "Library" area, create a folder per shoot, and drag each clip (or a multi-selected batch) into the right folder so future downloads are easy to find — both on the site and in the underlying storage.
+A user has accumulated dozens of graded clips across several shoots. They open a new "Library" area, create a folder per shoot, and drag each clip (or a multi-selected batch) into the right folder so future downloads are easy to find on the site.
 
 **Why this priority**: High value for long-term organization once volume grows, but the product is fully usable without it — files remain downloadable individually regardless.
 
-**Independent Test**: With at least one completed job in the library, create a folder, drag a single video into it, then multi-select several unsorted videos and move them into that same folder in one action; confirm the folder's contents and each video's storage location reflect the move.
+**Independent Test**: With at least one completed job in the library, create a folder, drag a single video into it, then multi-select several unsorted videos and move them into that same folder in one action; confirm the folder's contents reflect the move, each move completes quickly regardless of file size (SC-006), and downloading a moved video still saves under its readable name.
 
 **Acceptance Scenarios**:
 
@@ -63,7 +67,7 @@ A user has accumulated dozens of graded clips across several shoots. They open a
 2. **Given** an unsorted processed video, **When** the user drags it onto a folder, **Then** the video is moved into that folder and no longer appears in the unsorted area.
 3. **Given** several videos selected together, **When** the user moves the selection into one folder, **Then** all selected videos are moved into that folder in a single action.
 4. **Given** a video already inside a folder, **When** the user moves it into a different folder, **Then** it is removed from the first folder and appears only in the new one.
-5. **Given** a video assigned to a folder, **When** its underlying stored file is inspected, **Then** it is organized under that same folder using a human-readable name, matching what's shown in the library.
+5. **Given** a video assigned to a folder, **When** the user downloads it, **Then** the file is delivered under its readable name (FR-027), regardless of the folder it's currently organized into or how the file happens to be stored underneath.
 
 ---
 
@@ -124,7 +128,8 @@ A user accidentally selects a file they already graded with the same profile (or
 - **FR-016**: Every downloadable result file MUST be named using the source video's recorded creation date and the grading profile applied to it, rather than an opaque identifier (e.g. a UUID).
 - **FR-017**: When a source video's recorded creation date cannot be determined from its own metadata, the system MUST fall back to the date the job was submitted for processing.
 - **FR-018**: When two result files would otherwise generate an identical name (same recorded creation date-time and same profile), the system MUST disambiguate them so neither is overwritten or made inaccessible.
-- **FR-019**: The underlying stored location of each result video MUST mirror the folder it is organized into within the video library, using the same human-readable naming shown to the user, and MUST be kept in sync as videos are created or moved between folders. This applies only to result videos — the original source file a user uploaded MUST be left exactly as stored today (its own opaque identifier, no folder placement), since source files are never shown or organized in the video library.
+- **FR-019**: Every result video's underlying stored location MUST be set once, when it is created, and MUST NOT change afterward, including when the video is organized into a folder or moved between folders — folder organization is a property tracked separately from where the file actually lives, so that reorganizing the video library is never a data-moving operation. This applies only to result videos — the original source file a user uploaded MUST be left exactly as stored today (its own opaque identifier, no folder placement), since source files are never shown or organized in the video library.
+- **FR-027**: Whenever a result video is downloaded — from the dashboard or the video library, regardless of which folder (if any) it's organized into — the file MUST be delivered to the user under its readable name (FR-016), never under its underlying storage identifier (FR-019).
 - **FR-020**: Every result video file MUST open and play correctly in the operating system's standard, built-in media viewer (e.g., macOS Quick Look/Preview), without requiring additional software or format conversion.
 
 **Duplicate submission handling**
@@ -152,7 +157,7 @@ A user accidentally selects a file they already graded with the same profile (or
 - **SC-003**: A user can clear every completed and failed job from the dashboard in a single action, and doing so never removes a processed video from the library.
 - **SC-004**: A user can move 20 already-processed videos into one folder via a single bulk action, rather than 20 separate one-by-one moves.
 - **SC-005**: Attempting to resubmit an already-processed (or in-progress) file through the same profile is blocked before a new job is created, in 100% of cases, with an on-screen explanation the user can read without technical knowledge.
-- **SC-006**: For every video assigned to a folder, the folder and name shown in the video library exactly matches how that video is organized and named in underlying storage.
+- **SC-006**: Moving a video (or a multi-selected batch) into a folder completes in under a second, regardless of the video's file size — reorganizing the library is never file-size-dependent. Every downloaded result, from any folder, is still saved under its readable name (FR-027) even though the storage location itself no longer reflects folder placement.
 
 ## Assumptions
 

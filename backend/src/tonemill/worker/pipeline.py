@@ -1,6 +1,7 @@
 import asyncio
 import tempfile
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -63,16 +64,17 @@ async def _upload_result_with_display_name(
     recorded_created_at: datetime,
     profile_name: str,
 ) -> str:
-    """Uploads the graded output under `results/unsorted/{display_name}` (research.md #5) and
-    records `display_name`/`result_key`/`profile` on the `Video` document, retrying with a
-    disambiguating suffix on a name collision (FR-018) -- the upload only happens once; a
-    collision only requires retrying the cheap Mongo write, not re-uploading the file.
+    """Uploads the graded output under a stable, opaque `results/{job_id}/{uuid}.mp4` key --
+    permanent for the video's lifetime, never re-keyed by a later folder move (that's a pure
+    Mongo `folder_id` update now, see `videos/relocate.py`). The human-readable `display_name`
+    only ever appears as the presigned download URL's `Content-Disposition` filename
+    (`api/routes/jobs.py`, `api/routes/videos.py`), so disambiguating it on a collision
+    (FR-018) only means retrying the cheap Mongo write, never re-uploading the file.
     """
+    result_key = f"results/{job_id}/{uuid.uuid4()}.mp4"
+    await storage.upload_file(str(output_path), result_key)
     for attempt in range(_MAX_DISPLAY_NAME_ATTEMPTS):
         display_name = make_display_name(recorded_created_at, profile_name, attempt=attempt)
-        result_key = f"results/unsorted/{display_name}"
-        if attempt == 0:
-            await storage.upload_file(str(output_path), result_key)
         try:
             await video_store.update(
                 job_id,
