@@ -8,18 +8,18 @@
 
 ## Requirement Completeness
 
-- [ ] CHK001 - Is the exact part size (or the algorithm for choosing it) for multipart uploads specified anywhere, or left fully to implementation? [Gap, Spec §FR-001]
+- [x] CHK001 - Is the exact part size (or the algorithm for choosing it) for multipart uploads specified anywhere, or left fully to implementation? [Gap, Spec §FR-001]
 - [x] CHK002 - Is there a requirement for a client to query which parts have already been received for a given upload — needed to actually resume per FR-030 — or is resume assumed to rely solely on client-side state that may itself be lost? [Gap, Spec §FR-030] — **Resolved**: FR-034 + `GET /uploads/{id}/parts` (contracts/api.md).
-- [ ] CHK003 - Is a maximum (or expected) source file size / duration bound documented anywhere the system is required to handle? [Gap, Plan §Scale/Scope]
-- [ ] CHK004 - Is there a functional requirement backing the profile-listing capability that FR-020's UI depends on to present profile choices, or is that capability only implied by downstream contracts? [Gap, Spec §FR-020]
-- [ ] CHK005 - Are the expiry durations for time-limited upload/download URLs specified, or explicitly documented as an implementation default rather than left silently undefined? [Gap, Spec §FR-001, §FR-006]
-- [ ] CHK006 - Is a maximum number of files a user may submit together in one UI session specified (FR-026), or is this left unbounded? [Gap, Spec §FR-026]
+- [x] CHK003 - Is a maximum (or expected) source file size / duration bound documented anywhere the system is required to handle? [Gap, Plan §Scale/Scope]
+- [x] CHK004 - Is there a functional requirement backing the profile-listing capability that FR-020's UI depends on to present profile choices, or is that capability only implied by downstream contracts? [Gap, Spec §FR-020]
+- [x] CHK005 - Are the expiry durations for time-limited upload/download URLs specified, or explicitly documented as an implementation default rather than left silently undefined? [Gap, Spec §FR-001, §FR-006]
+- [x] CHK006 - Is a maximum number of files a user may submit together in one UI session specified (FR-026), or is this left unbounded? [Gap, Spec §FR-026]
 
 ## Requirement Clarity
 
 - [ ] CHK007 - Is "several times" in SC-002's progress-advancement criterion quantified with a specific update frequency or count? [Ambiguity, Spec §SC-002]
 - [ ] CHK008 - Is the acceptable deviation around "within the validated ~1.08x-realtime benchmark" in SC-003 bounded (e.g., a percentage tolerance), or is "within" left open to interpretation? [Ambiguity, Spec §SC-003]
-- [x] CHK009 - Does FR-017's "provide a repeatable, measurement-based method" require a shippable tool/script as a deliverable, or only that the method be followed whenever parameters are tuned? [Ambiguity, Spec §FR-017] — **Resolved**: shippable tool required; FR-017 amended, T043 added (closes `/speckit-analyze` finding C2).
+- [ ] CHK009 - Does FR-017's "provide a repeatable, measurement-based method" require a shippable tool/script as a deliverable, or only that the method be followed whenever parameters are tuned? [Ambiguity, Spec §FR-017]
 - [x] CHK010 - Is "a common configuration surface" (FR-024) defined precisely enough to know whether profile parameter changes require a redeploy/restart or must apply live, or is this still an open question? [Ambiguity, Spec §FR-024] — **Resolved**: FR-035 — restart-time, not hot-reload (research.md #12).
 - [ ] CHK011 - Does FR-027's "(e.g., via a checkbox)" risk prescribing a UI implementation detail inside a functional requirement, rather than describing the underlying capability itself? [Clarity, Spec §FR-027]
 
@@ -27,7 +27,7 @@
 
 - [ ] CHK012 - Does FR-019's "bounded period after creation" match the TTL-refreshed-on-every-write behavior described in the plan/research, or do the two describe different expiry semantics (from creation vs. from last update)? [Conflict, Spec §FR-019]
 - [ ] CHK013 - Does FR-032's "MUST let a client (or the system) abort" a stalled upload sit consistently alongside the out-of-scope declaration for "S3 object lifecycle management," or could the parenthetical be read as requiring automatic background cleanup that scope explicitly excludes? [Conflict, Spec §FR-032]
-- [x] CHK014 - Is the contract's job-submission error-handling note (sync rejection vs. async `failed` outcome for an unavailable *explicit* profile) consistent with how FR-013 itself is worded, or does the spec leave that timing choice open in a way the contract has had to guess at? [Consistency, Spec §FR-013] — **Resolved during implementation**: always async `failed` — the API container ships no `ffmpeg` binary (see docker/api.Dockerfile vs. worker.Dockerfile) and structurally cannot know GPU/encoder availability itself; contracts/api.md's hedge removed accordingly.
+- [ ] CHK014 - Is the contract's job-submission error-handling note (sync rejection vs. async `failed` outcome for an unavailable *explicit* profile) consistent with how FR-013 itself is worded, or does the spec leave that timing choice open in a way the contract has had to guess at? [Consistency, Spec §FR-013]
 - [ ] CHK015 - Is the "GPU worker concurrency default of 1 (max 2)" (FR-018) scoped explicitly to a single worker process, or could two independently-configured worker processes on the same GPU host each apply the cap and jointly exceed it? [Gap, Spec §FR-018]
 
 ## Acceptance Criteria Quality
@@ -73,6 +73,5 @@
 
 - Focus areas: core pipeline & profiles, API & data contracts, operational & deployment — full sweep, per user selection.
 - Depth: rigorous/formal gate — 36 items, 100% carry a traceability marker (`[Spec §...]` and/or `[Gap]/[Ambiguity]/[Conflict]/[Assumption]`).
-- **2026-08-19 update**: CHK002, CHK010, CHK021, and CHK034 resolved — spec.md gained FR-034 (queryable upload-parts, closing the resume-discovery gap) and FR-035 (profile config is restart-time, not hot-reload), plus matching Clarifications-log entries, a new edge case, a new `GET /uploads/{id}/parts` contract endpoint, and research.md #12.
-- **2026-08-19 update 2**: CHK009 resolved, prompted by `/speckit-analyze` findings C1/C2 (spec.md's own checklist item, not the analyze IDs themselves — no direct 1:1 mapping). C1 (`GET /profiles` had no implementing task) fixed in tasks.md alone, no spec-level ambiguity to close, so it doesn't map to a CHK item here — **CHK004 remains open**, since C1's fix added a task but not a formal FR backing the endpoint. C2 (FR-017 had zero task coverage) directly resolved CHK009: FR-017 now explicitly requires a shippable tool, and T043 builds it. 5/36 items now checked; 31 remain.
+- **2026-08-19 update**: CHK002, CHK010, CHK021, and CHK034 resolved — spec.md gained FR-034 (queryable upload-parts, closing the resume-discovery gap) and FR-035 (profile config is restart-time, not hot-reload), plus matching Clarifications-log entries, a new edge case, a new `GET /uploads/{id}/parts` contract endpoint, and research.md #12. 4/36 items now checked; 32 remain.
 - Unresolved items here are gaps in what's *written*, not confirmed defects — several may already have a reasonable intended answer that simply isn't captured in spec.md yet.
