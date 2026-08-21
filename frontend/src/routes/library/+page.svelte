@@ -3,15 +3,19 @@
 	import { libraryStore } from '$lib/stores/library.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import VideoCard from '$lib/components/VideoCard.svelte';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 
 	const DRAG_MIME = 'application/x-tonemill-video-ids';
 
 	let newFolderName = $state('');
 	let createError = $state<string | null>(null);
 	let isUnsortedDragOver = $state(false);
+	let deleteDialogOpen = $state(false);
 
 	onMount(() => {
 		void libraryStore.load();
@@ -63,6 +67,11 @@
 	async function handleDeleteFolder(folderId: string) {
 		await libraryStore.deleteFolder(folderId);
 	}
+
+	async function handleConfirmDelete() {
+		deleteDialogOpen = false;
+		await libraryStore.deleteVideos();
+	}
 </script>
 
 <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 md:px-8">
@@ -99,23 +108,36 @@
 			<p class="text-muted-foreground text-sm">
 				{libraryStore.selectedVideoIds.size} selected — drag onto a folder to move them together
 			</p>
-			<Button variant="ghost" size="sm" onclick={() => libraryStore.clearSelection()}>
-				Clear selection
-			</Button>
+			<div class="flex items-center gap-2">
+				<Button
+					variant="destructive"
+					size="sm"
+					disabled={libraryStore.selectedVideoIds.size === 0}
+					onclick={() => (deleteDialogOpen = true)}
+				>
+					Delete selected
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => libraryStore.clearSelection()}>
+					Clear selection
+				</Button>
+			</div>
 		</div>
 	{/if}
 
 	{#each libraryStore.folders as folder (folder.folder_id)}
 		{@const folderVideos = libraryStore.videosInFolder(folder.folder_id)}
+		{@const expanded = libraryStore.isFolderExpanded(folder.folder_id)}
 		<section class="mt-6">
 			<FolderCard
 				{folder}
 				videoCount={folderVideos.length}
+				{expanded}
+				onToggleExpanded={(id) => libraryStore.toggleFolderExpanded(id)}
 				onDrop={handleDropOnFolder}
 				onDelete={handleDeleteFolder}
 			/>
-			{#if folderVideos.length > 0}
-				<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+			{#if expanded && folderVideos.length > 0}
+				<div class="mt-3 flex flex-col gap-2 border-l pl-4 sm:pl-6">
 					{#each folderVideos as video (video.video_id)}
 						<VideoCard
 							{video}
@@ -142,22 +164,56 @@
 		ondragleave={() => (isUnsortedDragOver = false)}
 		ondrop={handleDropOnUnsorted}
 	>
-		<h2 class="text-foreground text-sm font-medium">Unsorted</h2>
-		{#if libraryStore.unsortedVideos().length === 0}
-			<p class="text-muted-foreground mt-2 text-sm">
-				No unsorted videos — drag a video here to move it out of a folder.
-			</p>
-		{:else}
-			<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-				{#each libraryStore.unsortedVideos() as video (video.video_id)}
-					<VideoCard
-						{video}
-						selected={libraryStore.isSelected(video.video_id)}
-						onToggleSelect={(id) => libraryStore.toggleSelected(id)}
-						onDragStart={handleDragStart}
-					/>
-				{/each}
-			</div>
+		<button
+			type="button"
+			class="flex items-center gap-2 text-left"
+			onclick={() => (libraryStore.unsortedExpanded = !libraryStore.unsortedExpanded)}
+		>
+			{#if libraryStore.unsortedExpanded}
+				<ChevronDownIcon class="text-muted-foreground size-4 shrink-0" />
+			{:else}
+				<ChevronRightIcon class="text-muted-foreground size-4 shrink-0" />
+			{/if}
+			<h2 class="text-foreground text-sm font-medium">Unsorted</h2>
+		</button>
+		{#if libraryStore.unsortedExpanded}
+			{#if libraryStore.unsortedVideos().length === 0}
+				<p class="text-muted-foreground mt-2 pl-6 text-sm">
+					No unsorted videos — drag a video here to move it out of a folder.
+				</p>
+			{:else}
+				<div class="mt-3 flex flex-col gap-2 pl-4 sm:pl-6">
+					{#each libraryStore.unsortedVideos() as video (video.video_id)}
+						<VideoCard
+							{video}
+							selected={libraryStore.isSelected(video.video_id)}
+							onToggleSelect={(id) => libraryStore.toggleSelected(id)}
+							onDragStart={handleDragStart}
+						/>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
+
+<AlertDialog.Root bind:open={deleteDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title
+				>Delete {libraryStore.selectedVideoIds.size} video{libraryStore.selectedVideoIds.size === 1
+					? ''
+					: 's'}?</AlertDialog.Title
+			>
+			<AlertDialog.Description>
+				This permanently removes the selected video{libraryStore.selectedVideoIds.size === 1
+					? ''
+					: 's'} and cannot be undone.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel onclick={() => (deleteDialogOpen = false)}>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={handleConfirmDelete}>Delete</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

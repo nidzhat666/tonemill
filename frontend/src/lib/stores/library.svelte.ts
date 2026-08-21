@@ -5,6 +5,12 @@ class LibraryStore {
 	videos = $state<VideoResponse[]>([]);
 	folders = $state<FolderResponse[]>([]);
 	selectedVideoIds = $state(new SvelteSet<string>());
+	/** Client-local display state only (FR-013, FR-015; research.md #6) -- never sent to or
+	 * read from the backend, and reset every time the library is (re)loaded.
+	 */
+	expandedFolderIds = $state(new SvelteSet<string>());
+	/** Unsorted defaults open, independent of named folders (spec.md Assumptions). */
+	unsortedExpanded = $state(true);
 
 	async load(): Promise<void> {
 		const [videos, folders] = await Promise.all([api.listVideos(), api.listFolders()]);
@@ -31,6 +37,15 @@ class LibraryStore {
 
 	clearSelection(): void {
 		this.selectedVideoIds.clear();
+	}
+
+	isFolderExpanded(folderId: string): boolean {
+		return this.expandedFolderIds.has(folderId);
+	}
+
+	toggleFolderExpanded(folderId: string): void {
+		if (this.expandedFolderIds.has(folderId)) this.expandedFolderIds.delete(folderId);
+		else this.expandedFolderIds.add(folderId);
 	}
 
 	async createFolder(name: string): Promise<FolderResponse> {
@@ -61,6 +76,18 @@ class LibraryStore {
 		this.videos = this.videos.map((v) =>
 			ids.includes(v.video_id) ? { ...v, folder_id: folderId } : v
 		);
+		this.clearSelection();
+	}
+
+	/** Permanently deletes the given videos (or the current selection, if `videoIds` is
+	 * omitted) -- irreversible (FR-021). Mirrors `moveVideos`'s shape: call the API, then
+	 * reflect the outcome locally without a full re-fetch.
+	 */
+	async deleteVideos(videoIds?: string[]): Promise<void> {
+		const ids = videoIds ?? [...this.selectedVideoIds];
+		if (ids.length === 0) return;
+		await api.deleteVideos(ids);
+		this.videos = this.videos.filter((v) => !ids.includes(v.video_id));
 		this.clearSelection();
 	}
 }

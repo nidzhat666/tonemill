@@ -19,6 +19,7 @@ from tonemill.profiles.registry import ProfileRegistry, resolve_auto
 from tonemill.progress.ffmpeg_progress import iter_progress_percent, probe_source_info
 from tonemill.storage.s3_client import S3StorageClient, open_storage_client
 from tonemill.videos.naming import make_display_name
+from tonemill.videos.preview import extract_preview_clips, extract_thumbnail
 from tonemill.videos.store import VideoStatus, VideoStore
 
 _PROGRESS_UPDATE_INTERVAL_SECONDS = 1.5
@@ -57,10 +58,12 @@ async def _reject_if_unrunnable(
 
 
 async def _upload_result_with_display_name(
+    settings: Settings,
     storage: S3StorageClient,
     video_store: VideoStore,
     job_id: str,
     output_path: Path,
+    duration_seconds: float,
     recorded_created_at: datetime,
     profile_name: str,
 ) -> str:
@@ -70,9 +73,30 @@ async def _upload_result_with_display_name(
     only ever appears as the presigned download URL's `Content-Disposition` filename
     (`api/routes/jobs.py`, `api/routes/videos.py`), so disambiguating it on a collision
     (FR-018) only means retrying the cheap Mongo write, never re-uploading the file.
+
+    The thumbnail and preview clips (specs/005-library-tree-thumbnails) are generated and
+    uploaded once, from this same already-on-disk output, before the retry loop below --
+    a `display_name` collision only ever needs retrying the cheap Mongo write, never
+    regenerating or re-uploading either of them.
     """
     result_key = f"results/{job_id}/{uuid.uuid4()}.mp4"
     await storage.upload_file(str(output_path), result_key)
+
+    thumbnail_path = await extract_thumbnail(settings.ffmpeg_path, output_path, duration_seconds)
+    thumbnail_key = f"results/{job_id}/thumbnail.jpg"
+    await storage.upload_file(str(thumbnail_path), thumbnail_key)
+
+    clip_paths = await extract_preview_clips(settings.ffmpeg_path, output_path, duration_seconds)
+    preview_clip_keys = []
+    for i, clip_path in enumerate(clip_paths):
+        clip_key = f"results/{job_id}/preview-{i}.mp4"
+        await storage.upload_file(str(clip_path), clip_key)
+        preview_clip_keys.append(clip_key)
+
+    _logger.info(
+        "preview assets generated", thumbnail_key=thumbnail_key, clip_count=len(preview_clip_keys)
+    )
+
     for attempt in range(_MAX_DISPLAY_NAME_ATTEMPTS):
         display_name = make_display_name(recorded_created_at, profile_name, attempt=attempt)
         try:
@@ -82,6 +106,8 @@ async def _upload_result_with_display_name(
                 recorded_created_at=recorded_created_at,
                 display_name=display_name,
                 result_key=result_key,
+                thumbnail_key=thumbnail_key,
+                preview_clip_keys=preview_clip_keys,
                 profile=profile_name,
             )
         except DuplicateKeyError:
@@ -153,7 +179,14 @@ async def _grade(
 
         try:
             result_key = await _upload_result_with_display_name(
-                storage, video_store, job_id, output_path, recorded_created_at, profile.name
+                settings,
+                storage,
+                video_store,
+                job_id,
+                output_path,
+                duration_ms / 1000,
+                recorded_created_at,
+                profile.name,
             )
         except Exception as exc:  # noqa: BLE001
             await _fail(job_store, video_store, job_id, f"result upload failed: {exc}")

@@ -3,6 +3,7 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import VideoThumbnail from './VideoThumbnail.svelte';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 
 	let {
@@ -23,19 +24,20 @@
 	draggable="true"
 	ondragstart={(e: DragEvent) => onDragStart(video.video_id, e)}
 >
-	<Card.Content class="flex flex-col gap-2">
-		<div class="flex items-start gap-2">
-			<Checkbox
-				checked={selected}
-				onCheckedChange={() => onToggleSelect(video.video_id)}
-				class="mt-0.5"
-			/>
-			<div class="min-w-0 flex-1">
-				<p class="text-foreground truncate text-sm font-medium">{video.display_name}</p>
-				<p class="text-muted-foreground text-xs">Profile: {video.profile}</p>
-			</div>
+	<Card.Content class="flex items-center gap-3">
+		<Checkbox
+			checked={selected}
+			onCheckedChange={() => onToggleSelect(video.video_id)}
+			class="shrink-0"
+		/>
+		<div class="w-28 shrink-0 sm:w-36">
+			<VideoThumbnail {video} />
 		</div>
-		<Button href={video.result_url} download size="sm" variant="outline" class="w-fit">
+		<div class="min-w-0 flex-1">
+			<p class="text-foreground truncate text-sm font-medium">{video.display_name}</p>
+			<p class="text-muted-foreground text-xs">Profile: {video.profile}</p>
+		</div>
+		<Button href={video.result_url} download size="sm" variant="outline" class="shrink-0">
 			<DownloadIcon />
 			Download
 		</Button>

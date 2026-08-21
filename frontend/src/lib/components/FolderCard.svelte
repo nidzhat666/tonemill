@@ -4,10 +4,14 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 
 	let {
 		folder,
 		videoCount,
+		expanded,
+		onToggleExpanded,
 		onDrop,
 		onDelete
 	}: {
@@ -16,6 +20,8 @@
 		// that field is a snapshot from the last GET /folders and goes stale the moment a
 		// video is moved locally (no full re-fetch happens after a move).
 		videoCount: number;
+		expanded: boolean;
+		onToggleExpanded: (folderId: string) => void;
 		onDrop: (folderId: string, event: DragEvent) => void;
 		onDelete: (folderId: string) => void;
 	} = $props();
@@ -37,11 +43,20 @@
 	}}
 >
 	<Card.Content class="flex items-center justify-between gap-2">
-		<div class="flex min-w-0 items-center gap-2">
+		<button
+			type="button"
+			class="flex min-w-0 flex-1 items-center gap-2 text-left"
+			onclick={() => onToggleExpanded(folder.folder_id)}
+		>
+			{#if expanded}
+				<ChevronDownIcon class="text-muted-foreground size-4 shrink-0" />
+			{:else}
+				<ChevronRightIcon class="text-muted-foreground size-4 shrink-0" />
+			{/if}
 			<FolderIcon class="text-muted-foreground size-4 shrink-0" />
 			<p class="text-foreground truncate text-sm font-medium">{folder.name}</p>
 			<span class="text-muted-foreground text-xs">({videoCount})</span>
-		</div>
+		</button>
 		<Button
 			variant="ghost"
 			size="icon-xs"

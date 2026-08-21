@@ -6,11 +6,13 @@ from pydantic import BaseModel
 
 from tonemill.api.dependencies import get_storage_client
 from tonemill.dependencies import get_folder_store, get_video_store
+from tonemill.logging_config import get_logger
 from tonemill.storage.s3_client import S3StorageClient
 from tonemill.videos.relocate import relocate_video
 from tonemill.videos.store import FolderStore, Video, VideoStatus, VideoStore
 
 router = APIRouter(prefix="/videos", tags=["videos"])
+_logger = get_logger(__name__)
 
 
 class VideoResponse(BaseModel):
@@ -20,6 +22,8 @@ class VideoResponse(BaseModel):
     recorded_created_at: datetime
     folder_id: str | None
     result_url: str
+    thumbnail_url: str | None
+    preview_clip_urls: list[str]
 
 
 class MoveVideosRequest(BaseModel):
@@ -31,13 +35,27 @@ class MoveVideosResponse(BaseModel):
     moved: int
 
 
+class DeleteVideosRequest(BaseModel):
+    video_ids: list[str]
+
+
+class DeleteVideosResponse(BaseModel):
+    deleted: int
+
+
 async def _to_video_response(video: Video, storage: S3StorageClient) -> VideoResponse:
     """Only ever called for `status=done` videos (FR-007) -- `display_name`/`result_key`/
-    `recorded_created_at` are guaranteed set by that point (data-model.md).
+    `recorded_created_at` are guaranteed set by that point (data-model.md). `thumbnail_key`/
+    `preview_clip_keys` are only guaranteed set for a video graded after specs/005 shipped --
+    `null`/`[]` otherwise (FR-004), which the library renders as "not ready yet".
     """
     assert video.display_name is not None
     assert video.result_key is not None
     assert video.recorded_created_at is not None
+    thumbnail_url = (
+        await storage.presign_get_object(video.thumbnail_key) if video.thumbnail_key else None
+    )
+    preview_clip_urls = [await storage.presign_get_object(key) for key in video.preview_clip_keys]
     return VideoResponse(
         video_id=video.id,
         display_name=video.display_name,
@@ -45,6 +63,8 @@ async def _to_video_response(video: Video, storage: S3StorageClient) -> VideoRes
         recorded_created_at=video.recorded_created_at,
         folder_id=video.folder_id,
         result_url=await storage.presign_get_object(video.result_key, filename=video.display_name),
+        thumbnail_url=thumbnail_url,
+        preview_clip_urls=preview_clip_urls,
     )
 
 
@@ -74,3 +94,30 @@ async def move_videos(
         await relocate_video(video, body.folder_id, video_store)
         moved += 1
     return MoveVideosResponse(moved=moved)
+
+
+@router.post("/delete", response_model=DeleteVideosResponse)
+async def delete_videos(
+    body: DeleteVideosRequest,
+    video_store: Annotated[VideoStore, Depends(get_video_store)],
+    storage: Annotated[S3StorageClient, Depends(get_storage_client)],
+) -> DeleteVideosResponse:
+    """Permanent, irreversible (FR-021) -- an unknown `video_id` is skipped, not an error,
+    matching `move_videos`'s existing behavior. Every S3 object the video owns is deleted
+    before the Mongo document itself, tolerating one already being missing (research.md #5).
+    """
+    deleted = 0
+    for video_id in body.video_ids:
+        video = await video_store.get(video_id)
+        if video is None:
+            continue
+        if video.result_key:
+            await storage.delete_object(video.result_key)
+        if video.thumbnail_key:
+            await storage.delete_object(video.thumbnail_key)
+        for clip_key in video.preview_clip_keys:
+            await storage.delete_object(clip_key)
+        await video_store.delete(video_id)
+        deleted += 1
+    _logger.info("videos deleted", requested=len(body.video_ids), deleted=deleted)
+    return DeleteVideosResponse(deleted=deleted)

@@ -110,6 +110,13 @@ class S3StorageClient:
     async def upload_file(self, source: str, key: str) -> None:
         await self._client.upload_file(source, self._bucket, key)
 
+    async def delete_object(self, key: str) -> None:
+        """Backs permanent video deletion (specs/005-library-tree-thumbnails, FR-021) --
+        deleting an already-missing key is not an error (S3/MinIO semantics), which callers
+        rely on to tolerate a video missing one of its optional assets (e.g. no thumbnail yet).
+        """
+        await self._client.delete_object(Bucket=self._bucket, Key=key)
+
     async def object_size(self, key: str) -> int:
         """Backs the content-fingerprint helper (research.md #3), which needs the object's
         total size before it can compute a "last N bytes" range.

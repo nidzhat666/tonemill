@@ -55,6 +55,8 @@ export interface VideoResponse {
 	recorded_created_at: string;
 	folder_id: string | null;
 	result_url: string;
+	thumbnail_url: string | null;
+	preview_clip_urls: string[];
 }
 
 export interface FolderResponse {
@@ -165,5 +167,12 @@ export const api = {
 
 	deleteFolder(folderId: string) {
 		return request<void>(`/folders/${folderId}`, { method: 'DELETE' });
+	},
+
+	deleteVideos(videoIds: string[]) {
+		return request<{ deleted: number }>('/videos/delete', {
+			method: 'POST',
+			body: JSON.stringify({ video_ids: videoIds })
+		});
 	}
 };

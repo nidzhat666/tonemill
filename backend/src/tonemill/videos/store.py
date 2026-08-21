@@ -30,6 +30,8 @@ class Video(BaseModel):
     recorded_created_at: datetime | None = None
     display_name: str | None = None
     result_key: str | None = None
+    thumbnail_key: str | None = None
+    preview_clip_keys: list[str] = []
     folder_id: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -42,6 +44,10 @@ class Folder(BaseModel):
 
 
 def _video_from_doc(doc: dict) -> Video:
+    """`.get()` (not bracket access) for every field added after a document could already
+    exist -- a video graded before that field was introduced has it absent entirely, not
+    just null, and bracket access would raise `KeyError` for every such document.
+    """
     return Video(
         id=doc["_id"],
         fingerprint=doc["fingerprint"],
@@ -53,6 +59,8 @@ def _video_from_doc(doc: dict) -> Video:
         recorded_created_at=doc.get("recorded_created_at"),
         display_name=doc.get("display_name"),
         result_key=doc.get("result_key"),
+        thumbnail_key=doc.get("thumbnail_key"),
+        preview_clip_keys=doc.get("preview_clip_keys", []),
         folder_id=doc.get("folder_id"),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -121,6 +129,8 @@ class VideoStore:
             "recorded_created_at": None,
             "display_name": None,
             "result_key": None,
+            "thumbnail_key": None,
+            "preview_clip_keys": [],
             "folder_id": None,
             "created_at": now,
             "updated_at": now,
@@ -170,6 +180,15 @@ class VideoStore:
             }
         )
         return _video_from_doc(doc) if doc else None
+
+    async def delete(self, video_id: str) -> None:
+        """A real, permanent delete (FR-021) -- not a soft-delete/status flip. Removing the
+        document also frees its fingerprint for reuse, since the duplicate-detection index
+        only ever matches `in_progress`/`done` documents (FR-024).
+        """
+        result = await self._collection.delete_one({"_id": video_id})
+        if result.deleted_count == 0:
+            raise VideoNotFoundError(video_id)
 
 
 class VideoNotFoundError(Exception):
