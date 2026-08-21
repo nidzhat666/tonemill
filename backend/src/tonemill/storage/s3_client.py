@@ -1,3 +1,4 @@
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -108,7 +109,13 @@ class S3StorageClient:
         await self._client.download_file(self._bucket, key, destination)
 
     async def upload_file(self, source: str, key: str) -> None:
-        await self._client.upload_file(source, self._bucket, key)
+        """`boto3.upload_file` never guesses `Content-Type` from the key, so without this
+        every object defaults to `binary/octet-stream` -- which browsers refuse to play via
+        `<video src>` regardless of the `.mp4` in the key (specs/005-library-tree-thumbnails).
+        """
+        content_type, _ = mimetypes.guess_type(key)
+        extra_args = {"ContentType": content_type} if content_type else None
+        await self._client.upload_file(source, self._bucket, key, ExtraArgs=extra_args)
 
     async def delete_object(self, key: str) -> None:
         """Backs permanent video deletion (specs/005-library-tree-thumbnails, FR-021) --
